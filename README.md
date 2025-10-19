@@ -1,8 +1,8 @@
 # 🧬 Path-VQA Med-GaMMa Fine-Tuning
 
-** Fine-tune Med-GaMMa on an enhanced version of the Path-VQA dataset (moebouassida/enhanced_path-vqa), which is based on flaviagiammarino/path-vqa. Answers have been pathologically enhanced using LLMs. Deploy via FastAPI with GPU Docker support and MLflow tracking.**
+**Fine-tune Med-GaMMa on an enhanced version of the Path-VQA dataset (moebouassida/enhanced_path-vqa), which is based on flaviagiammarino/path-vqa. Answers have been pathologically enhanced using LLMs. Deploy via FastAPI with GPU Docker support and MLflow tracking.**
 
-🚧 ** Live demo is currently in progress! **
+🚧 **Live demo is currently in progress!**
 
 ## ✅ Features
 📷 Upload pathology images (via URL) and ask clinical questions
