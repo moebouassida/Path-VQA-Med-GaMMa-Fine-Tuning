@@ -1,0 +1,11 @@
+torch
+transformers
+datasets
+unsloth
+trl
+fastapi
+uvicorn
+mlflow
+Pillow
+pyyaml
+requests
