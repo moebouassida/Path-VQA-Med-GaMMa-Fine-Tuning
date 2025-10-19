@@ -1,8 +1,8 @@
 # 🧬 Path-VQA Med-GaMMa Fine-Tuning
 
-** Fine-tune Med-GaMMa on an enhanced version of the Path-VQA dataset (moebouassida/enhanced_path-vqa), which is based on flaviagiammarino/path-vqa. Answers have been pathologically enhanced using LLMs. Deploy via FastAPI with GPU Docker support and MLflow tracking.**
+**Fine-tune Med-GaMMa on an enhanced version of the Path-VQA dataset (moebouassida/enhanced_path-vqa), which is based on flaviagiammarino/path-vqa. Answers have been pathologically enhanced using LLMs. Deploy via FastAPI with GPU Docker support and MLflow tracking.**
 
-🚧 ** Live demo is currently in progress! **
+🚧 **Live demo is currently in progress!**
 
 ## ✅ Features
 📷 Upload pathology images (via URL) and ask clinical questions
@@ -20,23 +20,15 @@
 ## 📁 Project Structure
 
 | File / Folder | Description |
-
+|---------------|-------------|
 | app/main.py | FastAPI app + inference logic |
-
 | scripts/train.py | Fine-tuning script using LoRA + SFTTrainer |
-
 | scripts/data_preprocessing.py | Converts Path-VQA dataset to conversation format |
-
 | configs/config.yaml | Hyperparameters and training configuration |
-
 | outputs/ | Fine-tuned Med-GaMMa model adapters and checkpoints |
-
 | mlruns/ | MLflow experiment tracking folder |
-
 | Dockerfile | GPU-enabled Docker image |
-
 | requirements.txt | Python dependencies |
-
 | README.md | Project documentation |
 
 ## 🚀 Setup & Run
@@ -45,22 +37,25 @@ Clone the repository
 
 No local dataset needed — Path-VQA is downloaded directly from Hugging Face.
 
-Run Locally (without Docker)
-
+### Run Locally (without Docker)
+```
 pip install -r requirements.txt
 python scripts/train.py
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
 
-Run with Docker (GPU Recommended)
+### Run with Docker (GPU Recommended)
 
 Requires NVIDIA GPU and NVIDIA Container Toolkit:
-
+```
 docker build -t pathvqa-medgemma-gpu .
 docker run --gpus all -p 8000:8000 pathvqa-medgemma-gpu
+```
 
 ## 📤 API Endpoints
 
 | Method | Endpoint | Description |
+|---------------|-------------|-------------|
 | POST | /predict | Upload image URL + question → returns pathologically detailed answer |
 | GET | /health | Health check | 
 | GET | /docs | Interactive Swagger UI |
@@ -96,26 +91,18 @@ Tracked items:
 ## ⚙ Technologies Used
 
 | Component | Technology |
-
+|---------------|-------------|
 | Backend | API FastAPI |
-
 | Vision-Language Model | Med-GaMMa |
-
 | Fine-Tuning | LoRA + SFTTrainer (TRL) |
-
 | Experiment | Tracking MLflow |
-
 | Containerization | Docker + NVIDIA Runtime |
-
 | Dataset | Enhanced Path-VQA moebouassida/enhanced_path-vqa (answers pathologically detailed) |
-
 | Input | Image + Question (JSON) |
-
 | Output | Text answer (JSON) |
 
-
 ## 🖼 Project Overview Diagram
-
+```
 Path-VQA Enhanced Dataset
         │
         ▼
@@ -135,10 +122,14 @@ User Input: Image + Question
         │
         ▼
 Model Output: Pathologically Detailed Answer
+```
 
 ## 🔄 Roadmap
 
 ✅ GPU-enabled Docker image
+
 ✅ MLflow integration
+
 📊 Web dashboard for predictions & visualizations (in progress)
+
 ☁  Cloud deployment (AWS)
