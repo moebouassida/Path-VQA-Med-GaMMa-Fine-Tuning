@@ -37,18 +37,20 @@ Clone the repository
 
 No local dataset needed — Path-VQA is downloaded directly from Hugging Face.
 
-Run Locally (without Docker)
-
+### Run Locally (without Docker)
+```
 pip install -r requirements.txt
 python scripts/train.py
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
 
-Run with Docker (GPU Recommended)
+### Run with Docker (GPU Recommended)
 
 Requires NVIDIA GPU and NVIDIA Container Toolkit:
-
+```
 docker build -t pathvqa-medgemma-gpu .
 docker run --gpus all -p 8000:8000 pathvqa-medgemma-gpu
+```
 
 ## 📤 API Endpoints
 
