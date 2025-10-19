@@ -20,7 +20,7 @@
 ## 📁 Project Structure
 
 | File / Folder | Description |
-
+|---------------|-------------|
 | app/main.py | FastAPI app + inference logic |
 
 | scripts/train.py | Fine-tuning script using LoRA + SFTTrainer |
@@ -61,6 +61,7 @@ docker run --gpus all -p 8000:8000 pathvqa-medgemma-gpu
 ## 📤 API Endpoints
 
 | Method | Endpoint | Description |
+|---------------|-------------|-------------|
 | POST | /predict | Upload image URL + question → returns pathologically detailed answer |
 | GET | /health | Health check | 
 | GET | /docs | Interactive Swagger UI |
