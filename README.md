@@ -22,21 +22,13 @@
 | File / Folder | Description |
 |---------------|-------------|
 | app/main.py | FastAPI app + inference logic |
-
 | scripts/train.py | Fine-tuning script using LoRA + SFTTrainer |
-
 | scripts/data_preprocessing.py | Converts Path-VQA dataset to conversation format |
-
 | configs/config.yaml | Hyperparameters and training configuration |
-
 | outputs/ | Fine-tuned Med-GaMMa model adapters and checkpoints |
-
 | mlruns/ | MLflow experiment tracking folder |
-
 | Dockerfile | GPU-enabled Docker image |
-
 | requirements.txt | Python dependencies |
-
 | README.md | Project documentation |
 
 ## 🚀 Setup & Run
@@ -97,23 +89,15 @@ Tracked items:
 ## ⚙ Technologies Used
 
 | Component | Technology |
-
+|---------------|-------------|
 | Backend | API FastAPI |
-
 | Vision-Language Model | Med-GaMMa |
-
 | Fine-Tuning | LoRA + SFTTrainer (TRL) |
-
 | Experiment | Tracking MLflow |
-
 | Containerization | Docker + NVIDIA Runtime |
-
 | Dataset | Enhanced Path-VQA moebouassida/enhanced_path-vqa (answers pathologically detailed) |
-
 | Input | Image + Question (JSON) |
-
 | Output | Text answer (JSON) |
-
 
 ## 🖼 Project Overview Diagram
 
