@@ -100,7 +100,7 @@ Tracked items:
 | Output | Text answer (JSON) |
 
 ## 🖼 Project Overview Diagram
-
+```
 Path-VQA Enhanced Dataset
         │
         ▼
@@ -120,10 +120,14 @@ User Input: Image + Question
         │
         ▼
 Model Output: Pathologically Detailed Answer
+```
 
 ## 🔄 Roadmap
 
 ✅ GPU-enabled Docker image
+
 ✅ MLflow integration
+
 📊 Web dashboard for predictions & visualizations (in progress)
+
 ☁  Cloud deployment (AWS)
