@@ -62,7 +62,7 @@ jobs:
       - uses: actions/checkout@v3
 
       - name: Build CPU Docker image
-        run: docker build -f src/Docker/Dockerfile -t pathvqa-api:${{ github.sha }} .
+        run: docker build -f Docker/Dockerfile -t pathvqa-api:${{ github.sha }} .
 
       - name: Smoke test — health endpoint
         run: |
