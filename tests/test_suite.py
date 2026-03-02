@@ -12,7 +12,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 # ── Metrics ───────────────────────────────────────────────────────────────────
 class TestMetrics:
-
     def test_exact_match_identical(self):
         from src.metrics import exact_match
 
@@ -110,7 +109,6 @@ class TestMetrics:
 
 # ── Data Processing ───────────────────────────────────────────────────────────
 class TestDataProcessing:
-
     def test_convert_to_conversation_structure(self):
         from src.data_processing import convert_to_conversation
         from PIL import Image
@@ -178,7 +176,6 @@ class TestDataProcessing:
 
 # ── Config ────────────────────────────────────────────────────────────────────
 class TestConfig:
-
     @pytest.fixture(autouse=True)
     def load_cfg(self):
         import yaml
