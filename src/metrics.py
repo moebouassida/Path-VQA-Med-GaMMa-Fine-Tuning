@@ -7,12 +7,14 @@ PathVQA has two question types:
 
 Standard PathVQA evaluation follows this split.
 """
+
 import re
 import string
 from collections import Counter
 
 
 # ── Text Normalization ─────────────────────────────────────────────────────────
+
 
 def normalize(text: str) -> str:
     """Lowercase, strip punctuation, normalize whitespace."""
@@ -29,6 +31,7 @@ def is_yes_no(answer: str) -> bool:
 
 # ── Exact Match ───────────────────────────────────────────────────────────────
 
+
 def exact_match(pred: str, target: str) -> float:
     """Binary exact match after normalization."""
     return float(normalize(pred) == normalize(target))
@@ -36,12 +39,13 @@ def exact_match(pred: str, target: str) -> float:
 
 # ── BLEU Score ────────────────────────────────────────────────────────────────
 
+
 def bleu_score(pred: str, target: str, max_n: int = 4) -> float:
     """
     Sentence-level BLEU score (no external dependencies).
     Uses modified n-gram precision with brevity penalty.
     """
-    pred_tokens   = normalize(pred).split()
+    pred_tokens = normalize(pred).split()
     target_tokens = normalize(target).split()
 
     if not pred_tokens or not target_tokens:
@@ -49,7 +53,7 @@ def bleu_score(pred: str, target: str, max_n: int = 4) -> float:
 
     scores = []
     for n in range(1, max_n + 1):
-        pred_ngrams   = _get_ngrams(pred_tokens, n)
+        pred_ngrams = _get_ngrams(pred_tokens, n)
         target_ngrams = _get_ngrams(target_tokens, n)
 
         if not pred_ngrams:
@@ -67,16 +71,18 @@ def bleu_score(pred: str, target: str, max_n: int = 4) -> float:
         return 0.0
 
     import math
+
     log_avg = sum(math.log(s + 1e-10) for s in scores) / len(scores)
     bp = min(1.0, math.exp(1 - len(target_tokens) / max(len(pred_tokens), 1)))
     return bp * math.exp(log_avg)
 
 
 def _get_ngrams(tokens: list, n: int) -> Counter:
-    return Counter(tuple(tokens[i:i+n]) for i in range(len(tokens) - n + 1))
+    return Counter(tuple(tokens[i : i + n]) for i in range(len(tokens) - n + 1))
 
 
 # ── VQA Score ─────────────────────────────────────────────────────────────────
+
 
 def vqa_score(pred: str, target: str) -> dict:
     """
@@ -89,8 +95,8 @@ def vqa_score(pred: str, target: str) -> dict:
 
     return {
         "exact_match": em,
-        "bleu":        bl,
-        "is_yes_no":   yn,
+        "bleu": bl,
+        "is_yes_no": yn,
     }
 
 
@@ -107,20 +113,20 @@ def aggregate_scores(results: list[dict]) -> dict:
     if not results:
         return {}
 
-    yn_results   = [r for r in results if r["is_yes_no"]]
+    yn_results = [r for r in results if r["is_yes_no"]]
     open_results = [r for r in results if not r["is_yes_no"]]
 
     def mean(lst, key):
         return sum(r[key] for r in lst) / len(lst) if lst else 0.0
 
     return {
-        "overall_exact_match":    mean(results,      "exact_match"),
-        "overall_bleu":           mean(results,      "bleu"),
-        "yes_no_accuracy":        mean(yn_results,   "exact_match"),
-        "open_ended_bleu":        mean(open_results, "bleu"),
-        "yes_no_count":           len(yn_results),
-        "open_ended_count":       len(open_results),
-        "total":                  len(results),
+        "overall_exact_match": mean(results, "exact_match"),
+        "overall_bleu": mean(results, "bleu"),
+        "yes_no_accuracy": mean(yn_results, "exact_match"),
+        "open_ended_bleu": mean(open_results, "bleu"),
+        "yes_no_count": len(yn_results),
+        "open_ended_count": len(open_results),
+        "total": len(results),
     }
 
 
@@ -132,8 +138,8 @@ def check_quality_gates(scores: dict, cfg: dict) -> tuple:
         (passed, failures)
     """
     gates = {
-        "yes_no_accuracy":  cfg.get("gate_exact_match", 0.55),
-        "open_ended_bleu":  cfg.get("gate_bleu",        0.20),
+        "yes_no_accuracy": cfg.get("gate_exact_match", 0.55),
+        "open_ended_bleu": cfg.get("gate_bleu", 0.20),
     }
 
     failures = []

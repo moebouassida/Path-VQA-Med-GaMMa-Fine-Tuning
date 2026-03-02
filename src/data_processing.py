@@ -11,6 +11,7 @@ Conversation format for Med-GaMMa (Gemma 3 chat template):
     user:      [instruction] + [image] + [question]
     assistant: [enhanced_answer]
 """
+
 from datasets import load_dataset
 
 INSTRUCTION = (
@@ -39,9 +40,9 @@ def convert_to_conversation(sample: dict, use_enhanced: bool = True) -> dict:
             {
                 "role": "user",
                 "content": [
-                    {"type": "text",  "text": INSTRUCTION},
+                    {"type": "text", "text": INSTRUCTION},
                     {"type": "image", "image": sample["image"]},
-                    {"type": "text",  "text": sample["question"]},
+                    {"type": "text", "text": sample["question"]},
                 ],
             },
             {
@@ -70,10 +71,12 @@ def main(
     dataset = load_dataset(dataset_name)
 
     train_split = dataset["train"]
-    val_split   = dataset["validation"]
+    val_split = dataset["validation"]
 
     if max_train_samples:
-        train_split = train_split.select(range(min(max_train_samples, len(train_split))))
+        train_split = train_split.select(
+            range(min(max_train_samples, len(train_split)))
+        )
     if max_val_samples:
         val_split = val_split.select(range(min(max_val_samples, len(val_split))))
 

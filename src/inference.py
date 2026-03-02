@@ -5,10 +5,10 @@ Usage:
     python src/inference.py --image path/to/image.jpg --question "What is present?"
     python src/inference.py --image-url https://... --question "Is this benign?"
 """
+
 import os
 import sys
 import argparse
-from pathlib import Path
 from PIL import Image
 import requests
 from io import BytesIO
@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 def load_model(model_path: str, load_in_4bit: bool = True):
     """Load fine-tuned Med-GaMMa from local path."""
     from unsloth import FastVisionModel
+
     print(f"[inference] Loading model from {model_path}...")
     model, processor = FastVisionModel.from_pretrained(
         model_path,
@@ -63,9 +64,9 @@ def predict(
         {
             "role": "user",
             "content": [
-                {"type": "text",  "text": instruction},
+                {"type": "text", "text": instruction},
                 {"type": "image", "image": image},
-                {"type": "text",  "text": question},
+                {"type": "text", "text": question},
             ],
         }
     ]
@@ -100,10 +101,10 @@ def predict(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model",      default="outputs/final")
-    parser.add_argument("--image",      default=None)
-    parser.add_argument("--image-url",  default=None)
-    parser.add_argument("--question",   required=True)
+    parser.add_argument("--model", default="outputs/final")
+    parser.add_argument("--image", default=None)
+    parser.add_argument("--image-url", default=None)
+    parser.add_argument("--question", required=True)
     parser.add_argument("--max-tokens", type=int, default=256)
     args = parser.parse_args()
 

@@ -6,6 +6,7 @@ Usage:
     python src/train.py --config config/config.yaml
     python src/train.py --config config/config.yaml --epochs 3 --smoke-test
 """
+
 import os
 import sys
 import argparse
@@ -25,19 +26,19 @@ def train(cfg: dict, smoke_test: bool = False):
     from unsloth.trainer import UnslothVisionDataCollator
     from trl import SFTTrainer, SFTConfig
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("  Path-VQA Med-GaMMa Fine-Tuning")
-    print("="*60)
+    print("=" * 60)
     print(f"  Model   : {cfg['pretrained_model']}")
     print(f"  Dataset : {cfg['dataset_name']}")
     print(f"  Epochs  : {cfg['num_train_epochs']}")
     print(f"  LR      : {cfg['learning_rate']}")
     print(f"  LoRA r  : {cfg['lora_r']}")
-    print("="*60 + "\n")
+    print("=" * 60 + "\n")
 
     # ── Data ──────────────────────────────────────────────────────
     max_train = 50 if smoke_test else None
-    max_val   = 20 if smoke_test else None
+    max_val = 20 if smoke_test else None
 
     train_dataset, val_dataset = load_dataset(
         dataset_name=cfg["dataset_name"],
@@ -72,9 +73,7 @@ def train(cfg: dict, smoke_test: bool = False):
     )
 
     # ── Data Collator ─────────────────────────────────────────────
-    data_collator = UnslothVisionDataCollator(
-        model, processor, resize=cfg["resize"]
-    )
+    data_collator = UnslothVisionDataCollator(model, processor, resize=cfg["resize"])
 
     # ── W&B ───────────────────────────────────────────────────────
     wandb.init(
@@ -157,15 +156,20 @@ def train(cfg: dict, smoke_test: bool = False):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config",     default="config/config.yaml")
-    parser.add_argument("--epochs",     type=int,   default=None)
-    parser.add_argument("--lr",         type=float, default=None)
-    parser.add_argument("--smoke-test", action="store_true",
-                        help="Run with tiny data subset to verify pipeline")
+    parser.add_argument("--config", default="config/config.yaml")
+    parser.add_argument("--epochs", type=int, default=None)
+    parser.add_argument("--lr", type=float, default=None)
+    parser.add_argument(
+        "--smoke-test",
+        action="store_true",
+        help="Run with tiny data subset to verify pipeline",
+    )
     args = parser.parse_args()
 
     cfg = yaml.safe_load(open(args.config))
-    if args.epochs: cfg["num_train_epochs"] = args.epochs
-    if args.lr:     cfg["learning_rate"] = args.lr
+    if args.epochs:
+        cfg["num_train_epochs"] = args.epochs
+    if args.lr:
+        cfg["learning_rate"] = args.lr
 
     train(cfg, smoke_test=args.smoke_test)

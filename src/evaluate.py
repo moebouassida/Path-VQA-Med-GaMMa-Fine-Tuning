@@ -9,6 +9,7 @@ Exit codes:
     0 — all quality gates passed
     1 — one or more gates failed
 """
+
 import os
 import sys
 import json
@@ -17,12 +18,13 @@ import yaml
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from data_processing import main as load_dataset
 from metrics import vqa_score, aggregate_scores, check_quality_gates
-from inference import load_model, load_image, predict
+from inference import load_model, predict
 
 
-def evaluate(cfg: dict, model_path: str, max_samples: int = None, output_json: str = None) -> bool:
+def evaluate(
+    cfg: dict, model_path: str, max_samples: int = None, output_json: str = None
+) -> bool:
     from datasets import load_dataset as hf_load
 
     print(f"\n{'='*62}")
@@ -51,7 +53,7 @@ def evaluate(cfg: dict, model_path: str, max_samples: int = None, output_json: s
             print(f"  [{i}/{len(test_split)}]")
 
         try:
-            image  = sample["image"].convert("RGB")
+            image = sample["image"].convert("RGB")
             answer = predict(model, processor, image, sample["question"])
             target = sample["answer"]
 
@@ -71,17 +73,19 @@ def evaluate(cfg: dict, model_path: str, max_samples: int = None, output_json: s
 
     gates = {
         "yes_no_accuracy": cfg.get("gate_exact_match", 0.55),
-        "open_ended_bleu":  cfg.get("gate_bleu",        0.20),
+        "open_ended_bleu": cfg.get("gate_bleu", 0.20),
     }
 
     for metric, threshold in gates.items():
-        value  = scores.get(metric, 0.0)
-        ok     = value >= threshold
+        value = scores.get(metric, 0.0)
+        ok = value >= threshold
         status = "PASS" if ok else "FAIL"
-        note   = "  <- BELOW THRESHOLD" if not ok else ""
+        note = "  <- BELOW THRESHOLD" if not ok else ""
         print(f"  {metric:<30} {value:>8.4f}   {threshold:>10.4f}   {status}{note}")
 
-    print(f"\n  {'overall_exact_match':<30} {scores.get('overall_exact_match', 0):>8.4f}")
+    print(
+        f"\n  {'overall_exact_match':<30} {scores.get('overall_exact_match', 0):>8.4f}"
+    )
     print(f"  {'overall_bleu':<30} {scores.get('overall_bleu', 0):>8.4f}")
     print(f"  {'yes_no_count':<30} {scores.get('yes_no_count', 0):>8}")
     print(f"  {'open_ended_count':<30} {scores.get('open_ended_count', 0):>8}")
@@ -94,12 +98,12 @@ def evaluate(cfg: dict, model_path: str, max_samples: int = None, output_json: s
 
     # Save results
     output = {
-        "scores":   scores,
-        "gates":    gates,
-        "passed":   passed,
+        "scores": scores,
+        "gates": gates,
+        "passed": passed,
         "failures": failures,
-        "model":    model_path,
-        "samples":  len(results),
+        "model": model_path,
+        "samples": len(results),
     }
 
     if output_json:
@@ -113,12 +117,12 @@ def evaluate(cfg: dict, model_path: str, max_samples: int = None, output_json: s
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model",       default="outputs/final")
-    parser.add_argument("--config",      default="config/config.yaml")
+    parser.add_argument("--model", default="outputs/final")
+    parser.add_argument("--config", default="config/config.yaml")
     parser.add_argument("--max-samples", type=int, default=None)
     parser.add_argument("--output-json", default="metrics/eval_results.json")
     args = parser.parse_args()
 
-    cfg    = yaml.safe_load(open(args.config))
+    cfg = yaml.safe_load(open(args.config))
     passed = evaluate(cfg, args.model, args.max_samples, args.output_json)
     sys.exit(0 if passed else 1)
