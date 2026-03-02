@@ -1,26 +1,115 @@
-from unsloth import FastVisionModel
+"""
+inference.py — Med-GaMMa inference with proper chat template formatting.
+
+Usage:
+    python src/inference.py --image path/to/image.jpg --question "What is present?"
+    python src/inference.py --image-url https://... --question "Is this benign?"
+"""
+import os
+import sys
+import argparse
+from pathlib import Path
 from PIL import Image
 import requests
 from io import BytesIO
+import torch
 
-# Load model
-model, processor = FastVisionModel.from_pretrained("outputs", load_in_4bit=True)
-model.eval()
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-def predict(image_url: str, question: str):
-    response = requests.get(image_url)
-    img = Image.open(BytesIO(response.content)).convert("RGB")
 
+def load_model(model_path: str, load_in_4bit: bool = True):
+    """Load fine-tuned Med-GaMMa from local path."""
+    from unsloth import FastVisionModel
+    print(f"[inference] Loading model from {model_path}...")
+    model, processor = FastVisionModel.from_pretrained(
+        model_path,
+        load_in_4bit=load_in_4bit,
+        device_map="auto",
+    )
+    FastVisionModel.for_inference(model)
+    model.eval()
+    print(f"[inference] Model loaded on {next(model.parameters()).device}")
+    return model, processor
+
+
+def load_image(image_path: str = None, image_url: str = None) -> Image.Image:
+    """Load image from local path or URL."""
+    if image_path:
+        return Image.open(image_path).convert("RGB")
+    elif image_url:
+        response = requests.get(image_url, timeout=10)
+        response.raise_for_status()
+        return Image.open(BytesIO(response.content)).convert("RGB")
+    else:
+        raise ValueError("Provide either image_path or image_url")
+
+
+def predict(
+    model,
+    processor,
+    image: Image.Image,
+    question: str,
+    max_new_tokens: int = 256,
+    instruction: str = "You are an expert pathologist. Analyze the pathology image carefully and answer the clinical question with a detailed, accurate explanation.",
+) -> str:
+    """
+    Run inference on a single image + question.
+
+    Returns:
+        str: model's answer
+    """
+    # Build conversation in Gemma 3 chat format
     conversation = [
-        {"role": "user", "content": [{"type": "text", "text": question}, {"type": "image", "image": img}]}
+        {
+            "role": "user",
+            "content": [
+                {"type": "text",  "text": instruction},
+                {"type": "image", "image": image},
+                {"type": "text",  "text": question},
+            ],
+        }
     ]
 
-    outputs = model.generate(conversation, max_new_tokens=256)
-    answer = processor.tokenizer.decode(outputs[0], skip_special_tokens=True)
+    # Apply chat template
+    inputs = processor.apply_chat_template(
+        conversation,
+        add_generation_prompt=True,
+        tokenize=True,
+        return_dict=True,
+        return_tensors="pt",
+    ).to(model.device)
+
+    with torch.no_grad():
+        outputs = model.generate(
+            **inputs,
+            max_new_tokens=max_new_tokens,
+            do_sample=False,
+            temperature=1.0,
+            use_cache=True,
+        )
+
+    # Decode only the new tokens (not the input prompt)
+    input_len = inputs["input_ids"].shape[1]
+    answer = processor.tokenizer.decode(
+        outputs[0][input_len:],
+        skip_special_tokens=True,
+    ).strip()
+
     return answer
 
+
 if __name__ == "__main__":
-    image_url = "https://example.com/pathology_image.jpg"
-    question = "What type of tissue is shown?"
-    answer = predict(image_url, question)
-    print("Answer:", answer)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model",      default="outputs/final")
+    parser.add_argument("--image",      default=None)
+    parser.add_argument("--image-url",  default=None)
+    parser.add_argument("--question",   required=True)
+    parser.add_argument("--max-tokens", type=int, default=256)
+    args = parser.parse_args()
+
+    model, processor = load_model(args.model)
+    image = load_image(image_path=args.image, image_url=args.image_url)
+    answer = predict(model, processor, image, args.question, args.max_tokens)
+
+    print(f"\nQuestion: {args.question}")
+    print(f"Answer:   {answer}")

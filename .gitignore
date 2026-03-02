@@ -1,0 +1,28 @@
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Model outputs — large files
+outputs/
+*.bin
+*.safetensors
+*.pt
+*.pth
+
+# Experiment tracking
+mlruns/
+wandb/
+metrics/
+
+# HuggingFace cache
+.cache/
+
+# Secrets
+.env
+
+# OS
+.DS_Store
+Thumbs.db
+.history/
