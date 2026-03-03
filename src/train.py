@@ -77,7 +77,7 @@ def train(cfg: dict, smoke_test: bool = False):
     print("\n" + "=" * 60)
     print("  Path-VQA Med-GaMMa Fine-Tuning")
     print("=" * 60)
-    print(f"  Model   : google/medgemma-4b-it")
+    print("  Model   : google/medgemma-4b-it")
     print(f"  Dataset : {cfg['dataset_name']}")
     print(f"  Epochs  : {cfg['num_train_epochs']}")
     print(f"  LR      : {cfg['learning_rate']}")
