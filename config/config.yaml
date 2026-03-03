@@ -1,7 +1,7 @@
 # =========================
 # Model & Dataset
 # =========================
-pretrained_model: "unsloth/medgemma-4b-it-unsloth-bnb-4bit"
+pretrained_model: "google/medgemma-4b-it"
 dataset_name: "moebouassida/path-vqa-enhanced"
 use_enhanced_answer: true        # use enhanced_answer column (richer explanations)
 
@@ -25,8 +25,8 @@ max_seq_length: 2048
 # =========================
 # LoRA
 # =========================
-lora_r: 16
-lora_alpha: 16
+lora_r: 32
+lora_alpha: 32
 lora_dropout: 0
 
 # =========================
