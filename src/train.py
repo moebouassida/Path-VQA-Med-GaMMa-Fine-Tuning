@@ -1,6 +1,6 @@
 """
 train.py — Med-GaMMa fine-tuning on PathVQA Enhanced.
-Uses HuggingFace native: transformers + peft + trl (no unsloth).
+Uses HuggingFace native: transformers + peft (no trl, no unsloth).
 
 Usage:
     python src/train.py
@@ -14,9 +14,8 @@ import argparse
 import yaml
 import torch
 import wandb
-import mlflow
-import mlflow.pytorch
 from huggingface_hub import login
+from torch.nn.utils.rnn import pad_sequence
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -27,17 +26,12 @@ def get_collate_fn(processor, max_seq_length):
     """Custom collate function for Med-GaMMa vision+text batches."""
 
     def collate_fn(examples):
-        texts = [
-            processor.apply_chat_template(
-                e["messages"],
-                tokenize=False,
-                add_generation_prompt=False,
-            )
-            for e in examples
-        ]
+        batch_input_ids = []
+        batch_attention = []
+        batch_pixel_values = []
 
-        images = []
         for e in examples:
+            # Extract image
             img = None
             for msg in e["messages"]:
                 for content in msg["content"]:
@@ -46,21 +40,46 @@ def get_collate_fn(processor, max_seq_length):
                         break
                 if img:
                     break
-            images.append(img)
 
-        batch = processor(
-            text=texts,
-            images=images,
-            return_tensors="pt",
-            padding=True,
-            truncation=True,
-            max_length=max_seq_length,
+            # Apply chat template
+            text = processor.apply_chat_template(
+                e["messages"],
+                tokenize=False,
+                add_generation_prompt=False,
+            )
+
+            inputs = processor(
+                text=text,
+                images=img,
+                return_tensors="pt",
+                truncation=True,
+                max_length=max_seq_length,
+            )
+
+            batch_input_ids.append(inputs["input_ids"][0])
+            batch_attention.append(inputs["attention_mask"][0])
+            batch_pixel_values.append(inputs["pixel_values"][0])
+
+        input_ids = pad_sequence(
+            batch_input_ids,
+            batch_first=True,
+            padding_value=processor.tokenizer.pad_token_id,
         )
+        attention_mask = pad_sequence(
+            batch_attention, batch_first=True, padding_value=0
+        )
+        pixel_values = torch.stack(batch_pixel_values)
 
-        labels = batch["input_ids"].clone()
+        labels = input_ids.clone()
         labels[labels == processor.tokenizer.pad_token_id] = -100
-        batch["labels"] = labels
-        return batch
+
+        return {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "pixel_values": pixel_values,
+            "token_type_ids": torch.zeros_like(input_ids),
+            "labels": labels,
+        }
 
     return collate_fn
 
@@ -70,9 +89,10 @@ def train(cfg: dict, smoke_test: bool = False):
         AutoProcessor,
         AutoModelForImageTextToText,
         BitsAndBytesConfig,
+        Trainer,
+        TrainingArguments,
     )
-    from peft import LoraConfig
-    from trl import SFTTrainer, SFTConfig
+    from peft import LoraConfig, get_peft_model
 
     print("\n" + "=" * 60)
     print("  Path-VQA Med-GaMMa Fine-Tuning")
@@ -118,7 +138,6 @@ def train(cfg: dict, smoke_test: bool = False):
         "google/medgemma-4b-it",
         quantization_config=bnb_config,
         device_map="auto",
-        torch_dtype=torch.bfloat16,
     )
     processor = AutoProcessor.from_pretrained("google/medgemma-4b-it")
 
@@ -133,6 +152,8 @@ def train(cfg: dict, smoke_test: bool = False):
         task_type="CAUSAL_LM",
         modules_to_save=["lm_head", "embed_tokens"],
     )
+    model = get_peft_model(model, peft_config)
+    model.print_trainable_parameters()
 
     # ── Collate fn ────────────────────────────────────────────────
     collate_fn = get_collate_fn(processor, cfg["max_seq_length"])
@@ -143,50 +164,44 @@ def train(cfg: dict, smoke_test: bool = False):
         entity=cfg.get("wandb_entity"),
         name=f"medgemma_lora_r{cfg['lora_r']}_lr{cfg['learning_rate']}",
         config=cfg,
+        dir=os.environ.get("WANDB_DIR", "/workspace/wandb"),
     )
 
-    # ── MLflow ────────────────────────────────────────────────────
-    if cfg.get("mlflow_tracking_uri"):
-        mlflow.set_tracking_uri(cfg["mlflow_tracking_uri"])
-    mlflow.set_experiment(cfg.get("mlflow_experiment", "path-vqa-medgemma"))
-    mlflow.start_run(run_name=f"lora_r{cfg['lora_r']}")
-    mlflow.log_params({k: str(v) for k, v in cfg.items()})
+    # ── Training args ─────────────────────────────────────────────
+    training_args = TrainingArguments(
+        output_dir=cfg["output_dir"],
+        num_train_epochs=1 if smoke_test else cfg["num_train_epochs"],
+        max_steps=5 if smoke_test else -1,
+        per_device_train_batch_size=cfg["per_device_train_batch_size"],
+        gradient_accumulation_steps=cfg["gradient_accumulation_steps"],
+        gradient_checkpointing=True,
+        gradient_checkpointing_kwargs={"use_reentrant": False},
+        bf16=True,
+        max_grad_norm=cfg["max_grad_norm"],
+        warmup_steps=cfg["warmup_steps"],
+        learning_rate=float(cfg["learning_rate"]),
+        weight_decay=cfg["weight_decay"],
+        lr_scheduler_type=cfg["lr_scheduler_type"],
+        optim=cfg["optim"],
+        logging_steps=cfg["logging_steps"],
+        save_strategy=cfg["save_strategy"],
+        save_steps=cfg.get("save_steps", 100),
+        save_total_limit=cfg.get("save_total_limit", 3),
+        push_to_hub=bool(cfg.get("hub_model_id")),
+        hub_model_id=cfg.get("hub_model_id"),
+        eval_strategy="steps",
+        eval_steps=cfg.get("save_steps", 100),
+        load_best_model_at_end=True,
+        seed=cfg["seed"],
+        report_to="wandb",
+        remove_unused_columns=False,
+    )
 
-    # ── Trainer ───────────────────────────────────────────────────
-    trainer = SFTTrainer(
+    trainer = Trainer(
         model=model,
-        args=SFTConfig(
-            output_dir=cfg["output_dir"],
-            num_train_epochs=1 if smoke_test else cfg["num_train_epochs"],
-            max_steps=5 if smoke_test else -1,
-            per_device_train_batch_size=cfg["per_device_train_batch_size"],
-            gradient_accumulation_steps=cfg["gradient_accumulation_steps"],
-            gradient_checkpointing=True,
-            gradient_checkpointing_kwargs={"use_reentrant": False},
-            bf16=True,
-            max_grad_norm=cfg["max_grad_norm"],
-            warmup_steps=cfg["warmup_steps"],
-            learning_rate=cfg["learning_rate"],
-            weight_decay=cfg["weight_decay"],
-            lr_scheduler_type=cfg["lr_scheduler_type"],
-            optim=cfg["optim"],
-            logging_steps=cfg["logging_steps"],
-            save_strategy=cfg["save_strategy"],
-            save_steps=cfg.get("save_steps", 100),
-            eval_strategy="steps",
-            eval_steps=cfg.get("save_steps", 100),
-            load_best_model_at_end=True,
-            seed=cfg["seed"],
-            report_to="wandb",
-            remove_unused_columns=False,
-            dataset_text_field="",
-            dataset_kwargs={"skip_prepare_dataset": True},
-            max_seq_length=cfg["max_seq_length"],
-        ),
+        args=training_args,
         train_dataset=train_dataset,
         eval_dataset=val_dataset,
-        peft_config=peft_config,
-        processing_class=processor,
         data_collator=collate_fn,
     )
 
@@ -198,9 +213,6 @@ def train(cfg: dict, smoke_test: bool = False):
         trainer.save_model(f"{cfg['output_dir']}/final")
         processor.save_pretrained(f"{cfg['output_dir']}/final")
 
-        mlflow.log_metric("train_loss", trainer.state.log_history[-1].get("loss", 0))
-        mlflow.log_artifact(cfg["output_dir"], artifact_path="model")
-
         print(f"\n{'='*60}")
         print("  Training complete!")
         print(f"  Model saved -> {cfg['output_dir']}/final")
@@ -209,9 +221,9 @@ def train(cfg: dict, smoke_test: bool = False):
     except KeyboardInterrupt:
         print("\nInterrupted — saving current state...")
         trainer.save_model(f"{cfg['output_dir']}/interrupted")
+        processor.save_pretrained(f"{cfg['output_dir']}/interrupted")
 
     finally:
-        mlflow.end_run()
         wandb.finish()
 
     return trainer

@@ -70,7 +70,7 @@ def main(
     print(f"[data] Loading {dataset_name}...")
     dataset = load_dataset(dataset_name)
 
-    train_split = dataset["train"]
+    train_split = dataset["train"].shuffle(seed=42)
     val_split = dataset["validation"]
 
     if max_train_samples:
@@ -79,6 +79,13 @@ def main(
         )
     if max_val_samples:
         val_split = val_split.select(range(min(max_val_samples, len(val_split))))
+
+    # Log yes/no balance
+    yes_no = sum(1 for s in train_split if str(s["answer"]).strip().lower() in ("yes", "no"))
+    print(
+        f"[data] Yes/No questions: {yes_no}/{len(train_split)} "
+        f"({100 * yes_no / max(len(train_split), 1):.1f}%)"
+    )
 
     print(f"[data] Converting {len(train_split)} train samples...")
     train_conv = [convert_to_conversation(s, use_enhanced) for s in train_split]

@@ -1,135 +1,178 @@
-# 🧬 Path-VQA Med-GaMMa Fine-Tuning
+# 🔬 Path-VQA Med-GaMMa Fine-Tuning
 
-**Fine-tune Med-GaMMa on an enhanced version of the Path-VQA dataset (moebouassida/enhanced_path-vqa), which is based on flaviagiammarino/path-vqa. Answers have been pathologically enhanced using LLMs. Deploy via FastAPI with GPU Docker support and MLflow tracking.**
+**Fine-tune Med-GaMMa 4B on PathVQA Enhanced for pathology Visual Question Answering.**
+Answers yes/no and open-ended clinical questions from H&E and other pathology images using LoRA fine-tuning on [moebouassida/path-vqa-enhanced](https://huggingface.co/datasets/moebouassida/path-vqa-enhanced).
 
-🚧 **Live demo is currently in progress!**
+[![CI](https://github.com/moebouassida/Path-VQA-Med-GaMMa-Fine-Tuning/actions/workflows/ci.yml/badge.svg)](https://github.com/moebouassida/Path-VQA-Med-GaMMa-Fine-Tuning/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-## ✅ Features
-📷 Upload pathology images (via URL) and ask clinical questions
+---
 
-🩺 Predict pathologically accurate answers using Med-GaMMa fine-tuned on enhanced Path-VQA
+## Architecture
 
-⚡ GPU acceleration supported (CUDA + Docker)
-
-📊 MLflow integration for tracking training metrics, hyperparameters, and model checkpoints
-
-📝 Interactive API documentation via Swagger UI (/docs)
-
-🧱 Modular, clean project structure for easy extension
-
-## 📁 Project Structure
-
-| File / Folder | Description |
-|---------------|-------------|
-| app/main.py | FastAPI app + inference logic |
-| scripts/train.py | Fine-tuning script using LoRA + SFTTrainer |
-| scripts/data_preprocessing.py | Converts Path-VQA dataset to conversation format |
-| configs/config.yaml | Hyperparameters and training configuration |
-| outputs/ | Fine-tuned Med-GaMMa model adapters and checkpoints |
-| mlruns/ | MLflow experiment tracking folder |
-| Dockerfile | GPU-enabled Docker image |
-| requirements.txt | Python dependencies |
-| README.md | Project documentation |
-
-## 🚀 Setup & Run
-
-Clone the repository
-
-No local dataset needed — Path-VQA is downloaded directly from Hugging Face.
-
-### Run Locally (without Docker)
 ```
+PathVQA Enhanced (HF Hub)
+        │
+        ▼
+data_processing.py  ← shuffle + conversation format
+        │
+        ▼
+train.py  ← LoRA fine-tuning (SFTTrainer, 4-bit NF4)
+        │
+        ▼
+outputs/final/
+        ├── src/main.py        ← FastAPI inference API
+        ├── src/inference.py   ← CLI inference
+        ├── src/evaluate.py    ← eval + quality gates
+        └── hf_spaces_app.py   ← Gradio demo
+```
+
+| Component | Details |
+|-----------|---------|
+| Base model | Med-GaMMa 4B (`google/medgemma-4b-it`) |
+| Fine-tuning | LoRA r=32, alpha=64 · SFTTrainer (TRL) |
+| Quantization | 4-bit NF4 + bfloat16 |
+| Dataset | PathVQA Enhanced — LLM-enriched clinical answers |
+| Tracking | W&B + MLflow |
+| Serving | FastAPI + Gradio |
+
+---
+
+## Setup
+
+```bash
+git clone https://github.com/moebouassida/Path-VQA-Med-GaMMa-Fine-Tuning.git
+cd Path-VQA-Med-GaMMa-Fine-Tuning
 pip install -r requirements.txt
-python scripts/train.py
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### Run with Docker (GPU Recommended)
+**Requirements:** Python 3.10+, CUDA GPU (RTX 4090 recommended), HF token for Med-GaMMa access.
 
-Requires NVIDIA GPU and NVIDIA Container Toolkit:
-```
-docker build -t pathvqa-medgemma-gpu .
-docker run --gpus all -p 8000:8000 pathvqa-medgemma-gpu
+Set environment variables:
+```bash
+export HF_TOKEN=hf_...
+export WANDB_API_KEY=...         # optional
+export OPENROUTER_API_KEY=...    # optional
 ```
 
-## 📤 API Endpoints
+---
+
+## Training
+
+```bash
+# Smoke test (5 steps, verify pipeline works)
+python src/train.py --config config/config.yaml --smoke-test
+
+# Full training
+python src/train.py --config config/config.yaml
+
+# Override epochs or LR
+python src/train.py --config config/config.yaml --epochs 5 --lr 1e-4
+```
+
+Checkpoints save to `outputs/` and push to HF Hub (set `hub_model_id` in config).
+
+---
+
+## Evaluation
+
+```bash
+python src/evaluate.py --model outputs/final --config config/config.yaml
+```
+
+Quality gates (configurable in `config.yaml`):
+- Yes/No exact match ≥ 0.55
+- Open-ended BLEU ≥ 0.20
+
+---
+
+## Inference
+
+**CLI:**
+```bash
+python src/inference.py --model outputs/final \
+  --image path/to/slide.jpg \
+  --question "Is there evidence of malignancy?"
+```
+
+**Gradio demo:**
+```bash
+python hf_spaces_app.py
+# → http://localhost:7860
+```
+
+**FastAPI server:**
+```bash
+uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+# → http://localhost:8000/docs
+```
+
+---
+
+## API Endpoints
 
 | Method | Endpoint | Description |
-|---------------|-------------|-------------|
-| POST | /predict | Upload image URL + question → returns pathologically detailed answer |
-| GET | /health | Health check | 
-| GET | /docs | Interactive Swagger UI |
+|--------|----------|-------------|
+| `GET` | `/health` | Liveness check |
+| `POST` | `/predict` | Image URL + question → answer |
+| `POST` | `/predict/upload` | Image file upload + question → answer |
+| `GET` | `/docs` | Swagger UI |
 
-Example request:
+```bash
+curl -X POST http://localhost:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{"image_url": "https://...", "question": "Is this benign?"}'
+```
 
-curl -X POST "http://localhost:8000/predict" \
--H "Content-Type: application/json" \
--d '{
-    "image_url": "https://example.com/pathology_image.jpg",
-    "question": "What type of tissue is shown?"
-}'
+---
 
-Response:
+## Docker (GPU)
 
-{
-  "answer": "This is glandular epithelium tissue with high stromal content..."
+```bash
+docker build -f Docker/Dockerfile -t pathvqa-medgemma .
+docker run --gpus all -p 8000:8000 \
+  -v ./outputs:/app/outputs:ro \
+  -e HF_TOKEN=$HF_TOKEN \
+  pathvqa-medgemma
+```
+
+---
+
+## Project Structure
+
+```
+Path-VQA-Med-GaMMa-Fine-Tuning/
+├── src/
+│   ├── train.py           # LoRA fine-tuning script
+│   ├── inference.py       # Model loading + inference
+│   ├── data_processing.py # Dataset loader + conversation format
+│   ├── evaluate.py        # Evaluation + quality gates
+│   ├── metrics.py         # Exact match, BLEU, VQA score
+│   └── main.py            # FastAPI server
+├── hf_spaces_app.py       # Gradio demo
+├── config/config.yaml     # All hyperparameters
+├── Docker/Dockerfile      # GPU Docker image
+├── tests/                 # Unit tests
+└── .github/workflows/     # CI pipeline
+```
+
+---
+
+## Citation
+
+```bibtex
+@software{pathvqa_medgemma2026,
+  author = {Bouassida, Moez},
+  title  = {Path-VQA Med-GaMMa Fine-Tuning},
+  year   = {2026},
+  url    = {https://github.com/moebouassida/Path-VQA-Med-GaMMa-Fine-Tuning}
 }
-
-## 📊 MLflow Integration
-
-Metrics, hyperparameters, and trained models are logged to ./mlruns.
-
-Start MLflow UI:
-
-mlflow ui --backend-store-uri ./mlruns
-# Open in browser: http://localhost:5000
-
-Tracked items:
-
-✅ Training loss & validation metrics✅ Hyperparameters (LR, batch size, epochs)✅ Saved LoRA adapters / model checkpoints
-
-## ⚙ Technologies Used
-
-| Component | Technology |
-|---------------|-------------|
-| Backend | API FastAPI |
-| Vision-Language Model | Med-GaMMa |
-| Fine-Tuning | LoRA + SFTTrainer (TRL) |
-| Experiment | Tracking MLflow |
-| Containerization | Docker + NVIDIA Runtime |
-| Dataset | Enhanced Path-VQA moebouassida/enhanced_path-vqa (answers pathologically detailed) |
-| Input | Image + Question (JSON) |
-| Output | Text answer (JSON) |
-
-## 🖼 Project Overview Diagram
-```
-Path-VQA Enhanced Dataset
-        │
-        ▼
-Data Preprocessing
-        │
-        ▼
-LoRA Fine-Tuning (Med-GaMMa)
-        │
-        ▼
-Saved Adapters / Checkpoints
-        │
-        ▼
-FastAPI Inference API
-        │
-        ▼
-User Input: Image + Question
-        │
-        ▼
-Model Output: Pathologically Detailed Answer
 ```
 
-## 🔄 Roadmap
+---
 
-✅ GPU-enabled Docker image
+## License
 
-✅ MLflow integration
+MIT — see [LICENSE](LICENSE).
 
-📊 Web dashboard for predictions & visualizations (in progress)
-
-☁  Cloud deployment (AWS)
+> ⚠️ Research use only. Not a medical device. All outputs must be interpreted by qualified healthcare professionals.

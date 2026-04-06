@@ -8,7 +8,7 @@ use_enhanced_answer: true        # use enhanced_answer column (richer explanatio
 # =========================
 # Training
 # =========================
-per_device_train_batch_size: 2
+per_device_train_batch_size: 4
 gradient_accumulation_steps: 2
 num_train_epochs: 3
 learning_rate: 2e-4
@@ -26,8 +26,9 @@ max_seq_length: 2048
 # LoRA
 # =========================
 lora_r: 32
-lora_alpha: 32
+lora_alpha: 64
 lora_dropout: 0
+save_total_limit: 3
 
 # =========================
 # General
@@ -45,6 +46,7 @@ gate_bleu: 0.20              # open-ended BLEU score
 # =========================
 # Tracking
 # =========================
+hub_model_id: "moebouassida/medgemma-4b-path-vqa"   # set to null to disable HF Hub push
 wandb_project: "path-vqa-medgemma"
 wandb_entity: null           # set to your W&B username
 mlflow_experiment: "path-vqa-medgemma"

@@ -1,5 +1,5 @@
 """
-inference.py — Med-GaMMa inference with proper chat template formatting.
+inference.py — Med-GaMMa inference with standard HuggingFace transformers + PEFT.
 
 Usage:
     python src/inference.py --image path/to/image.jpg --question "What is present?"
@@ -18,16 +18,31 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
 def load_model(model_path: str, load_in_4bit: bool = True):
-    """Load fine-tuned Med-GaMMa from local path."""
-    from unsloth import FastVisionModel
+    """Load fine-tuned Med-GaMMa (LoRA adapter) from local path."""
+    from transformers import AutoProcessor, AutoModelForImageTextToText, BitsAndBytesConfig
 
     print(f"[inference] Loading model from {model_path}...")
-    model, processor = FastVisionModel.from_pretrained(
-        model_path,
-        load_in_4bit=load_in_4bit,
-        device_map="auto",
-    )
-    FastVisionModel.for_inference(model)
+
+    processor = AutoProcessor.from_pretrained(model_path)
+
+    if load_in_4bit:
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.bfloat16,
+        )
+        model = AutoModelForImageTextToText.from_pretrained(
+            model_path,
+            quantization_config=bnb_config,
+            device_map="auto",
+        )
+    else:
+        model = AutoModelForImageTextToText.from_pretrained(
+            model_path,
+            torch_dtype=torch.bfloat16,
+            device_map="auto",
+        )
+
     model.eval()
     print(f"[inference] Model loaded on {next(model.parameters()).device}")
     return model, processor
@@ -59,7 +74,6 @@ def predict(
     Returns:
         str: model's answer
     """
-    # Build conversation in Gemma 3 chat format
     conversation = [
         {
             "role": "user",
@@ -71,7 +85,6 @@ def predict(
         }
     ]
 
-    # Apply chat template
     inputs = processor.apply_chat_template(
         conversation,
         add_generation_prompt=True,
@@ -89,7 +102,6 @@ def predict(
             use_cache=True,
         )
 
-    # Decode only the new tokens (not the input prompt)
     input_len = inputs["input_ids"].shape[1]
     answer = processor.tokenizer.decode(
         outputs[0][input_len:],
