@@ -6,10 +6,10 @@ dataset_name: "moebouassida/path-vqa-enhanced"
 use_enhanced_answer: true            # use enhanced_answer column (richer explanations)
 
 # =========================
-# Training  (RTX 5090 / 32 GB VRAM optimized)
+# Training  (H100 SXM / 80 GB HBM3 optimized)
 # =========================
-per_device_train_batch_size: 16       # stable with DoRA on 32 GB; raise to 8 if VRAM allows
-gradient_accumulation_steps: 2       # effective batch size = 32
+per_device_train_batch_size: 32      # H100 80 GB handles large batches easily
+gradient_accumulation_steps: 1       # effective batch size = 32
 num_train_epochs: 3
 learning_rate: 2e-4
 warmup_ratio: 0.05                   # 5% of total steps for LR warm-up (converted to warmup_steps in code)
