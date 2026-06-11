@@ -20,20 +20,14 @@ echo "  CUDA  : $(nvcc --version 2>/dev/null | grep 'release' | sed 's/.*release
 echo "  Python: $(python --version)"
 echo ""
 
-# ── 1. Flash Attention 2 (must be first, heavy C++ compile) ──────────────────
-echo "[1/4] Installing Flash Attention 2..."
-pip install flash-attn --no-build-isolation -q
-echo "      Flash Attention 2 installed."
-echo ""
-
-# ── 2. Project dependencies ───────────────────────────────────────────────────
-echo "[2/4] Installing project requirements..."
-pip install -r requirements.txt -q
+# ── 1. Project dependencies ───────────────────────────────────────────────────
+echo "[1/3] Installing project requirements..."
+pip install --ignore-installed --timeout 120 -r requirements.txt -q
 echo "      Dependencies installed."
 echo ""
 
-# ── 3. Pre-cache Med-GaMMa base weights ──────────────────────────────────────
-echo "[3/4] Pre-fetching Med-GaMMa 4B base model weights..."
+# ── 2. Pre-cache Med-GaMMa base weights ──────────────────────────────────────
+echo "[2/3] Pre-fetching Med-GaMMa 4B base model weights..."
 python - <<'PYEOF'
 import os
 from huggingface_hub import snapshot_download
@@ -49,8 +43,8 @@ print("  Base model cached.")
 PYEOF
 echo ""
 
-# ── 4. Create output directories ──────────────────────────────────────────────
-echo "[4/4] Creating workspace directories..."
+# ── 3. Create output directories ──────────────────────────────────────────────
+echo "[3/3] Creating workspace directories..."
 mkdir -p outputs wandb metrics logs
 echo "      Directories ready."
 echo ""
@@ -58,7 +52,7 @@ echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║  Setup complete!  Start training with:                       ║"
 echo "║                                                              ║"
-echo "║    bash scripts/train_runpod.sh                              ║"
 echo "║    bash scripts/train_runpod.sh --smoke-test  (quick check)  ║"
+echo "║    bash scripts/train_runpod.sh --epochs 1    (full run)     ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
