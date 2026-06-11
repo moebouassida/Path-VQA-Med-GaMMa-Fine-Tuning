@@ -23,6 +23,14 @@ echo ""
 # ── 1. Project dependencies ───────────────────────────────────────────────────
 echo "[1/3] Installing project requirements..."
 pip install --ignore-installed --timeout 120 -r requirements.txt -q
+
+# Fix torchvision/torchaudio version mismatch with the installed torch.
+# RunPod base images ship old torchvision/torchaudio that conflict after torch upgrade.
+CUDA_TAG=$(python -c "import torch; v=torch.version.cuda; print('cu' + v.replace('.','')[:3])" 2>/dev/null || echo "cu124")
+echo "      Fixing torchvision/torchaudio for torch $(python -c 'import torch; print(torch.__version__)') ($CUDA_TAG)..."
+pip install --upgrade torchvision torchaudio \
+    --index-url https://download.pytorch.org/whl/${CUDA_TAG} \
+    --timeout 120 -q
 echo "      Dependencies installed."
 echo ""
 
