@@ -177,6 +177,9 @@ def train(cfg: dict, smoke_test: bool = False):
     use_fa2 = cfg.get("use_flash_attention", False)
     use_dora = cfg.get("use_dora", False)
     use_rslora = cfg.get("use_rslora", False)
+    # attn_implementation: flash_attention_2 > sdpa > eager (in order of speed)
+    # sdpa uses PyTorch's built-in fused attention — no extra install, works on CUDA 13.0
+    attn_impl = cfg.get("attn_implementation", "flash_attention_2" if use_fa2 else "sdpa")
     load_in_4bit = cfg.get("load_in_4bit", False)
 
     print("\n" + "=" * 64)
@@ -191,7 +194,7 @@ def train(cfg: dict, smoke_test: bool = False):
     print(f"  LoRA r      : {cfg['lora_r']}  alpha={cfg['lora_alpha']}")
     print(f"  DoRA        : {use_dora}")
     print(f"  RSLoRA      : {use_rslora}")
-    print(f"  Flash Attn2 : {use_fa2}")
+    print(f"  Attention   : {attn_impl}")
     print(f"  4-bit       : {load_in_4bit}")
     print(f"  Smoke test  : {smoke_test}")
     print(f"  Device      : {torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'}")
@@ -234,8 +237,7 @@ def train(cfg: dict, smoke_test: bool = False):
         bnb_config = None
 
     quant_label = "4-bit NF4, double_quant" if load_in_4bit else "bfloat16"
-    print(f"[model] Loading {model_name} ({quant_label})...")
-    attn_impl = "flash_attention_2" if use_fa2 else "eager"
+    print(f"[model] Loading {model_name} ({quant_label}, attn={attn_impl})...")
     load_kwargs = dict(device_map="auto", attn_implementation=attn_impl)
     if bnb_config is not None:
         load_kwargs["quantization_config"] = bnb_config

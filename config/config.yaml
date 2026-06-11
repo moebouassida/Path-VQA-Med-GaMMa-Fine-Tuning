@@ -29,10 +29,15 @@ dataloader_num_workers: 2
 # Flash Attention 2
 # Requires: pip install flash-attn --no-build-isolation
 # Gives ~2x training speedup on Blackwell GPUs (RTX 5090).
-# Disabled by default: CUDA 13.0 (RunPod PyTorch 2.12) has a compile mismatch.
-# Enable if your CUDA version supports it.
+# Disabled by default: no prebuilt wheel for cu130+torch2.12 and system CUDA
+# mismatch prevents compiling from source. Enable only if flash-attn installs.
 # =========================
 use_flash_attention: false
+
+# attn_implementation: "sdpa" | "eager" | "flash_attention_2"
+# sdpa = PyTorch built-in fused attention, faster than eager, no install needed.
+# Automatically set to "sdpa" when use_flash_attention=false.
+attn_implementation: "sdpa"
 
 # =========================
 # LoRA / DoRA / RSLoRA
