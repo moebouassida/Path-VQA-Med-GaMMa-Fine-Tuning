@@ -159,8 +159,8 @@ _STATS = """
 |:--|:--|
 | **Base model** | Med-GaMMa 4B (`google/medgemma-4b-it`) |
 | **Adapter** | DoRA + RSLoRA (r=16) |
-| **Attention** | Flash Attention 2 |
-| **Quantization** | 4-bit NF4, double quant |
+| **Attention** | Flash Attention 2 (optional) |
+| **Quantization** | bfloat16 (4-bit NF4 optional) |
 | **Dataset** | PathVQA Enhanced (~32K pairs) |
 | **GPU** | NVIDIA RTX 5090 · 32 GB |
 

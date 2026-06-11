@@ -2,15 +2,16 @@
 train.py — Med-GaMMa fine-tuning on PathVQA Enhanced.
 Uses HuggingFace native: transformers + peft (no trl, no unsloth).
 
-Key improvements over v1:
+Key design decisions:
   - Proper label masking: loss is computed ONLY on assistant response tokens,
     not on the system prompt / user question (major training quality fix).
-  - Flash Attention 2 for ~2x faster training on RTX 5090 (Blackwell).
   - DoRA (Weight-Decomposed LoRA) — outperforms standard LoRA at same rank.
   - RSLoRA (Rank-Stabilized LoRA) — stable gradients for higher-rank adapters.
-  - Double quantization saves ~0.4 bits/param with no accuracy loss.
-  - warmup_ratio instead of warmup_steps (more portable across dataset sizes).
-  - token_type_ids removed — Gemma is decoder-only, doesn't use them.
+  - Flash Attention 2 optional (~2x speedup on Blackwell); falls back to eager.
+  - 4-bit NF4 optional; disabled by default (CUDA 13.0 / RTX 5090 incompatibility
+    with bitsandbytes — 32 GB VRAM makes QLoRA unnecessary anyway).
+  - warmup_steps computed from warmup_ratio (warmup_ratio deprecated in v5.2).
+  - token_type_ids omitted — Gemma is decoder-only.
   - GPU VRAM usage logged at key checkpoints.
 
 Usage:
@@ -23,11 +24,20 @@ Usage:
 import os
 import sys
 import argparse
+import warnings
+import contextlib
+import io as _io
 import yaml
 import torch
 import wandb
 from huggingface_hub import login
 from torch.nn.utils.rnn import pad_sequence
+
+# Suppress noisy-but-harmless deprecation warnings from transformers internals
+warnings.filterwarnings("ignore", message=".*processor.image_token.*")
+warnings.filterwarnings("ignore", message=".*boi_token.*")
+warnings.filterwarnings("ignore", message=".*use_cache.*gradient.*")
+warnings.filterwarnings("ignore", message=".*tie_word_embeddings.*")
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from data_processing import main as load_dataset
@@ -129,7 +139,7 @@ def get_collate_fn(processor, max_seq_length: int):
             "attention_mask": attention_mask,
             "pixel_values": pixel_values,
             "labels": labels,
-            # Note: token_type_ids intentionally omitted — Gemma is decoder-only.
+            # token_type_ids intentionally omitted — Gemma is decoder-only.
         }
 
     return collate_fn
@@ -141,7 +151,6 @@ def train(cfg: dict, smoke_test: bool = False):
     from transformers import (
         AutoProcessor,
         AutoModelForImageTextToText,
-        BitsAndBytesConfig,
         Trainer,
         TrainingArguments,
     )
@@ -151,6 +160,7 @@ def train(cfg: dict, smoke_test: bool = False):
     use_fa2 = cfg.get("use_flash_attention", False)
     use_dora = cfg.get("use_dora", False)
     use_rslora = cfg.get("use_rslora", False)
+    load_in_4bit = cfg.get("load_in_4bit", False)
 
     print("\n" + "=" * 64)
     print("  Path-VQA Med-GaMMa Fine-Tuning")
@@ -165,6 +175,7 @@ def train(cfg: dict, smoke_test: bool = False):
     print(f"  DoRA        : {use_dora}")
     print(f"  RSLoRA      : {use_rslora}")
     print(f"  Flash Attn2 : {use_fa2}")
+    print(f"  4-bit       : {load_in_4bit}")
     print(f"  Smoke test  : {smoke_test}")
     print(f"  Device      : {torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'}")
     print("=" * 64 + "\n")
@@ -188,19 +199,32 @@ def train(cfg: dict, smoke_test: bool = False):
     )
 
     # ── Quantization config ────────────────────────────────────────────────────
-    compute_dtype = torch.bfloat16  # RTX 5090 supports bf16 natively
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=cfg.get("load_in_4bit", True),
-        bnb_4bit_quant_type=cfg.get("bnb_4bit_quant_type", "nf4"),
-        bnb_4bit_compute_dtype=compute_dtype,
-        bnb_4bit_use_double_quant=cfg.get("bnb_4bit_use_double_quant", True),
-    )
+    # 4-bit NF4 is optional. Disable when bitsandbytes is incompatible with the
+    # CUDA version (e.g. CUDA 13.0 on RTX 5090) or when VRAM is sufficient.
+    compute_dtype = torch.bfloat16  # RTX 5090 supports bf16 natively (torch >= 2.8)
 
-    # ── Load model with optional Flash Attention 2 ────────────────────────────
-    print(f"[model] Loading {model_name} (4-bit NF4, double_quant)...")
+    if load_in_4bit:
+        # Suppress bitsandbytes stderr noise during import (harmless CUDA lib warning)
+        with contextlib.redirect_stderr(_io.StringIO()):
+            from transformers import BitsAndBytesConfig
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type=cfg.get("bnb_4bit_quant_type", "nf4"),
+            bnb_4bit_compute_dtype=compute_dtype,
+            bnb_4bit_use_double_quant=cfg.get("bnb_4bit_use_double_quant", True),
+        )
+    else:
+        bnb_config = None
+
+    quant_label = "4-bit NF4, double_quant" if load_in_4bit else "bfloat16"
+    print(f"[model] Loading {model_name} ({quant_label})...")
     attn_impl = "flash_attention_2" if use_fa2 else "eager"
-    load_kwargs = dict(quantization_config=bnb_config, device_map="auto",
-                       attn_implementation=attn_impl)
+    load_kwargs = dict(device_map="auto", attn_implementation=attn_impl)
+    if bnb_config is not None:
+        load_kwargs["quantization_config"] = bnb_config
+    else:
+        load_kwargs["dtype"] = compute_dtype
+
     try:
         model = AutoModelForImageTextToText.from_pretrained(model_name, **load_kwargs)
         if use_fa2:
@@ -218,6 +242,8 @@ def train(cfg: dict, smoke_test: bool = False):
     _log_gpu()
 
     # ── DoRA / LoRA adapters ───────────────────────────────────────────────────
+    # modules_to_save intentionally omitted: adding lm_head + embed_tokens pushes
+    # trainable params to ~1.38B and causes OOM on the optimizer state allocation.
     adapter_mode = "DoRA" if use_dora else "LoRA"
     print(f"[model] Attaching {adapter_mode} adapters "
           f"(r={cfg['lora_r']}, alpha={cfg['lora_alpha']}, "
@@ -229,7 +255,6 @@ def train(cfg: dict, smoke_test: bool = False):
         bias="none",
         target_modules="all-linear",
         task_type="CAUSAL_LM",
-        modules_to_save=["lm_head", "embed_tokens"],
         use_dora=use_dora,
         use_rslora=use_rslora,
     )
@@ -263,13 +288,13 @@ def train(cfg: dict, smoke_test: bool = False):
     )
 
     # ── Training arguments ─────────────────────────────────────────────────────
-    # Support both warmup_ratio (preferred) and legacy warmup_steps
-    if "warmup_ratio" in cfg:
-        warmup_kw = {"warmup_ratio": cfg["warmup_ratio"]}
-    elif "warmup_steps" in cfg:
-        warmup_kw = {"warmup_steps": cfg["warmup_steps"]}
+    # warmup_ratio is deprecated in transformers v5.2 — compute warmup_steps instead.
+    if smoke_test:
+        warmup_steps = 1
     else:
-        warmup_kw = {"warmup_ratio": 0.05}
+        effective_batch = cfg["per_device_train_batch_size"] * cfg["gradient_accumulation_steps"]
+        total_steps = max(1, len(train_dataset) // effective_batch) * cfg["num_train_epochs"]
+        warmup_steps = max(1, int(total_steps * cfg.get("warmup_ratio", 0.05)))
 
     training_args = TrainingArguments(
         output_dir=cfg["output_dir"],
@@ -281,7 +306,7 @@ def train(cfg: dict, smoke_test: bool = False):
         gradient_checkpointing_kwargs={"use_reentrant": False},
         bf16=True,
         max_grad_norm=cfg.get("max_grad_norm", 1.0),
-        **warmup_kw,
+        warmup_steps=warmup_steps,
         learning_rate=float(cfg["learning_rate"]),
         weight_decay=cfg.get("weight_decay", 0.01),
         lr_scheduler_type=cfg.get("lr_scheduler_type", "cosine"),
@@ -324,11 +349,10 @@ def train(cfg: dict, smoke_test: bool = False):
         # ── W&B model artifact (versioned) ────────────────────────────────────
         # Each completed run logs the adapter weights as a versioned artifact.
         # In the W&B UI: Artifacts → model → v1 / v2 / v3 …
-        # Compare versions, rollback, or download any version later.
         if not smoke_test:
             artifact_name = (
                 cfg.get("hub_model_id", "medgemma-path-vqa")
-                .split("/")[-1]           # strip org prefix
+                .split("/")[-1]
                 .replace(" ", "-")
             )
             artifact = wandb.Artifact(

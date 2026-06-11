@@ -19,7 +19,7 @@ PathVQA Enhanced (HF Hub)
 data_processing.py  ← conversation format + label masking
         │
         ▼
-train.py  ← DoRA + RSLoRA fine-tuning (4-bit NF4, Flash Attention 2)
+train.py  ← DoRA + RSLoRA fine-tuning (bfloat16, optional Flash Attention 2)
         │
         ▼
 outputs/final/
@@ -33,8 +33,8 @@ outputs/final/
 |-----------|---------|
 | Base model | Med-GaMMa 4B (`google/medgemma-4b-it`) |
 | Fine-tuning | DoRA + RSLoRA · r=16, α=32 · HF Trainer |
-| Quantization | 4-bit NF4 + double quant · bfloat16 compute |
-| Attention | Flash Attention 2 (~2× speedup) |
+| Quantization | bfloat16 (4-bit NF4 optional, see config) |
+| Attention | Flash Attention 2 optional (~2× speedup) |
 | Dataset | PathVQA Enhanced — ~32K LLM-enriched clinical QA pairs |
 | Tracking | W&B (metrics + model artifacts) |
 | Serving | FastAPI + Gradio |
@@ -70,7 +70,7 @@ The recommended training path is RunPod Community Cloud with a single RTX 5090 (
 | Setting | Value |
 |---------|-------|
 | GPU | RTX 5090 (32 GB GDDR7) |
-| Template | RunPod PyTorch 2.x (CUDA 12.1+) |
+| Template | RunPod PyTorch 2.12+ (CUDA 13.0 for RTX 5090) |
 | Container disk | 20 GB |
 | Volume disk | 50 GB |
 | Secrets | `HF_TOKEN`, `WANDB_API_KEY` |

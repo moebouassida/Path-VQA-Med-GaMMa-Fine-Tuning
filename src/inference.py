@@ -50,7 +50,7 @@ def load_model(model_path: str, load_in_4bit: bool = True):
     else:
         model = AutoModelForImageTextToText.from_pretrained(
             model_path,
-            torch_dtype=torch.bfloat16,
+            dtype=torch.bfloat16,
             device_map="auto",
         )
 

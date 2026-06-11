@@ -8,11 +8,11 @@ use_enhanced_answer: true            # use enhanced_answer column (richer explan
 # =========================
 # Training  (RTX 5090 / 32 GB VRAM optimized)
 # =========================
-per_device_train_batch_size: 16      # 32 GB VRAM allows larger batch than 4090
-gradient_accumulation_steps: 2       # effective batch size = 32
+per_device_train_batch_size: 4       # stable with DoRA on 32 GB; raise to 8 if VRAM allows
+gradient_accumulation_steps: 8       # effective batch size = 32
 num_train_epochs: 3
 learning_rate: 2e-4
-warmup_ratio: 0.05                   # 5% of total steps for LR warm-up
+warmup_ratio: 0.05                   # 5% of total steps for LR warm-up (converted to warmup_steps in code)
 max_grad_norm: 1.0
 logging_steps: 10
 save_strategy: "steps"
@@ -29,8 +29,10 @@ dataloader_num_workers: 2
 # Flash Attention 2
 # Requires: pip install flash-attn --no-build-isolation
 # Gives ~2x training speedup on Blackwell GPUs (RTX 5090).
+# Disabled by default: CUDA 13.0 (RunPod PyTorch 2.12) has a compile mismatch.
+# Enable if your CUDA version supports it.
 # =========================
-use_flash_attention: true
+use_flash_attention: false
 
 # =========================
 # LoRA / DoRA / RSLoRA
@@ -46,9 +48,11 @@ use_rslora: true
 
 # =========================
 # 4-bit NF4 Quantization  (QLoRA)
-# double_quant saves an extra ~0.4 bits/param
+# Disabled by default: bitsandbytes is incompatible with CUDA 13.0 (RTX 5090 / Blackwell).
+# The RTX 5090 has 32 GB VRAM so QLoRA is unnecessary regardless.
+# Enable only on older GPUs with limited VRAM (e.g. RTX 3090 24 GB).
 # =========================
-load_in_4bit: true
+load_in_4bit: false
 bnb_4bit_use_double_quant: true
 bnb_4bit_quant_type: "nf4"
 bnb_4bit_compute_dtype: "bfloat16"   # RTX 5090 supports bf16 natively (requires torch>=2.8)
