@@ -2,12 +2,24 @@
 train.py — Med-GaMMa fine-tuning on PathVQA Enhanced.
 Uses HuggingFace native: transformers + peft (no trl, no unsloth).
 
+Key improvements over v1:
+  - Proper label masking: loss is computed ONLY on assistant response tokens,
+    not on the system prompt / user question (major training quality fix).
+  - Flash Attention 2 for ~2x faster training on RTX 4090 (Ada Lovelace).
+  - DoRA (Weight-Decomposed LoRA) — outperforms standard LoRA at same rank.
+  - RSLoRA (Rank-Stabilized LoRA) — stable gradients for higher-rank adapters.
+  - Double quantization saves ~0.4 bits/param with no accuracy loss.
+  - warmup_ratio instead of warmup_steps (more portable across dataset sizes).
+  - token_type_ids removed — Gemma is decoder-only, doesn't use them.
+  - GPU VRAM usage logged at key checkpoints.
+
 Usage:
-    python src/train.py
-    python src/train.py --config config/config.yaml
-    python src/train.py --config config/config.yaml --smoke-test
-    python src/train.py --config config/config.yaml --epochs 3
+    python -m src.train
+    python -m src.train --config config/config.yaml
+    python -m src.train --smoke-test          # 5 steps, tiny data
+    python -m src.train --epochs 5 --lr 1e-4
 """
+
 import os
 import sys
 import argparse
@@ -18,71 +30,112 @@ from huggingface_hub import login
 from torch.nn.utils.rnn import pad_sequence
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
 from data_processing import main as load_dataset
 
 
-def get_collate_fn(processor, max_seq_length):
-    """Custom collate function for Med-GaMMa vision+text batches."""
+# ── Utilities ─────────────────────────────────────────────────────────────────
+
+def _log_gpu():
+    """Print current VRAM usage (allocated / reserved / total)."""
+    if not torch.cuda.is_available():
+        return
+    alloc = torch.cuda.memory_allocated() / 1e9
+    resv = torch.cuda.memory_reserved() / 1e9
+    total = torch.cuda.get_device_properties(0).total_memory / 1e9
+    print(f"  VRAM: {alloc:.1f} GB used | {resv:.1f} GB reserved | {total:.1f} GB total")
+
+
+# ── Collate function ───────────────────────────────────────────────────────────
+
+def get_collate_fn(processor, max_seq_length: int):
+    """
+    Build a collate fn for Med-GaMMa vision+text batches.
+
+    Labels are masked so the cross-entropy loss is computed ONLY on the
+    assistant's response tokens.  Everything before (system prompt, user
+    question, image tokens) is set to -100 and ignored.
+
+    Why this matters: without it the model wastes capacity memorising the
+    fixed instruction text instead of learning to generate good answers.
+    """
 
     def collate_fn(examples):
         batch_input_ids = []
         batch_attention = []
         batch_pixel_values = []
+        batch_prompt_lens = []
 
         for e in examples:
-            # Extract image
+            # ── Extract image ──────────────────────────────────────────────
             img = None
             for msg in e["messages"]:
-                for content in msg["content"]:
-                    if content["type"] == "image":
-                        img = content["image"]
+                for part in msg["content"]:
+                    if part["type"] == "image":
+                        img = part["image"]
                         break
                 if img:
                     break
 
-            # Apply chat template
-            text = processor.apply_chat_template(
+            # ── Full sequence: user turn + assistant turn ──────────────────
+            full_text = processor.apply_chat_template(
                 e["messages"],
                 tokenize=False,
                 add_generation_prompt=False,
             )
-
-            inputs = processor(
-                text=text,
+            full_inputs = processor(
+                text=full_text,
                 images=img,
                 return_tensors="pt",
                 truncation=True,
                 max_length=max_seq_length,
             )
 
-            batch_input_ids.append(inputs["input_ids"][0])
-            batch_attention.append(inputs["attention_mask"][0])
-            batch_pixel_values.append(inputs["pixel_values"][0])
+            # ── Prompt-only length (used to mask instruction tokens) ────────
+            # apply_chat_template with add_generation_prompt=True gives us
+            # everything up to (and including) the start of the assistant turn.
+            prompt_msgs = [m for m in e["messages"] if m["role"] != "assistant"]
+            prompt_text = processor.apply_chat_template(
+                prompt_msgs,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+            prompt_inputs = processor(
+                text=prompt_text,
+                images=img,
+                return_tensors="pt",
+                truncation=True,
+                max_length=max_seq_length,
+            )
 
-        input_ids = pad_sequence(
-            batch_input_ids,
-            batch_first=True,
-            padding_value=processor.tokenizer.pad_token_id,
-        )
-        attention_mask = pad_sequence(
-            batch_attention, batch_first=True, padding_value=0
-        )
+            batch_input_ids.append(full_inputs["input_ids"][0])
+            batch_attention.append(full_inputs["attention_mask"][0])
+            batch_pixel_values.append(full_inputs["pixel_values"][0])
+            batch_prompt_lens.append(prompt_inputs["input_ids"].shape[1])
+
+        # ── Pad to longest sequence in batch ──────────────────────────────
+        pad_id = processor.tokenizer.pad_token_id
+        input_ids = pad_sequence(batch_input_ids, batch_first=True, padding_value=pad_id)
+        attention_mask = pad_sequence(batch_attention, batch_first=True, padding_value=0)
         pixel_values = torch.stack(batch_pixel_values)
 
+        # ── Build labels: -100 on pad tokens AND on instruction tokens ─────
         labels = input_ids.clone()
-        labels[labels == processor.tokenizer.pad_token_id] = -100
+        labels[labels == pad_id] = -100
+        for i, prompt_len in enumerate(batch_prompt_lens):
+            labels[i, :prompt_len] = -100
 
         return {
             "input_ids": input_ids,
             "attention_mask": attention_mask,
             "pixel_values": pixel_values,
-            "token_type_ids": torch.zeros_like(input_ids),
             "labels": labels,
+            # Note: token_type_ids intentionally omitted — Gemma is decoder-only.
         }
 
     return collate_fn
 
+
+# ── Main training function ─────────────────────────────────────────────────────
 
 def train(cfg: dict, smoke_test: bool = False):
     from transformers import (
@@ -94,80 +147,130 @@ def train(cfg: dict, smoke_test: bool = False):
     )
     from peft import LoraConfig, get_peft_model
 
-    print("\n" + "=" * 60)
-    print("  Path-VQA Med-GaMMa Fine-Tuning")
-    print("=" * 60)
-    print("  Model   : google/medgemma-4b-it")
-    print(f"  Dataset : {cfg['dataset_name']}")
-    print(f"  Epochs  : {cfg['num_train_epochs']}")
-    print(f"  LR      : {cfg['learning_rate']}")
-    print(f"  LoRA r  : {cfg['lora_r']}")
-    print(
-        f"  Device  : {torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'}"
-    )
-    print("=" * 60 + "\n")
+    model_name = cfg.get("pretrained_model", "google/medgemma-4b-it")
+    use_fa2 = cfg.get("use_flash_attention", False)
+    use_dora = cfg.get("use_dora", False)
+    use_rslora = cfg.get("use_rslora", False)
 
-    # ── HF Login ──────────────────────────────────────────────────
+    print("\n" + "=" * 64)
+    print("  Path-VQA Med-GaMMa Fine-Tuning")
+    print("=" * 64)
+    print(f"  Model       : {model_name}")
+    print(f"  Dataset     : {cfg['dataset_name']}")
+    print(f"  Epochs      : {cfg['num_train_epochs']}")
+    print(f"  Batch       : {cfg['per_device_train_batch_size']} × {cfg['gradient_accumulation_steps']} accum "
+          f"= {cfg['per_device_train_batch_size'] * cfg['gradient_accumulation_steps']} effective")
+    print(f"  LR          : {cfg['learning_rate']}")
+    print(f"  LoRA r      : {cfg['lora_r']}  alpha={cfg['lora_alpha']}")
+    print(f"  DoRA        : {use_dora}")
+    print(f"  RSLoRA      : {use_rslora}")
+    print(f"  Flash Attn2 : {use_fa2}")
+    print(f"  Smoke test  : {smoke_test}")
+    print(f"  Device      : {torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'}")
+    print("=" * 64 + "\n")
+
+    # ── HF login ──────────────────────────────────────────────────────────────
     hf_token = cfg.get("hf_token") or os.getenv("HF_TOKEN")
     if hf_token:
         login(token=hf_token)
-        print("[auth] HuggingFace login successful")
+        print("[auth] HuggingFace login OK")
     else:
-        raise ValueError("HF_TOKEN not found in config or environment")
+        raise ValueError(
+            "HF_TOKEN not found. Set it via env var or add hf_token to config."
+        )
 
-    # ── Data ──────────────────────────────────────────────────────
-    max_train = 50 if smoke_test else None
-    max_val = 20 if smoke_test else None
-
+    # ── Data ──────────────────────────────────────────────────────────────────
     train_dataset, val_dataset = load_dataset(
         dataset_name=cfg["dataset_name"],
         use_enhanced=cfg.get("use_enhanced_answer", True),
-        max_train_samples=max_train,
-        max_val_samples=max_val,
+        max_train_samples=50 if smoke_test else None,
+        max_val_samples=20 if smoke_test else None,
     )
 
-    # ── Model ─────────────────────────────────────────────────────
-    print("[model] Loading Med-GaMMa in 4-bit...")
+    # ── Quantization config ────────────────────────────────────────────────────
+    compute_dtype = torch.bfloat16  # RTX 4090 supports bf16 natively
     bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=torch.bfloat16,
+        load_in_4bit=cfg.get("load_in_4bit", True),
+        bnb_4bit_quant_type=cfg.get("bnb_4bit_quant_type", "nf4"),
+        bnb_4bit_compute_dtype=compute_dtype,
+        bnb_4bit_use_double_quant=cfg.get("bnb_4bit_use_double_quant", True),
     )
 
-    model = AutoModelForImageTextToText.from_pretrained(
-        "google/medgemma-4b-it",
-        quantization_config=bnb_config,
-        device_map="auto",
-    )
-    processor = AutoProcessor.from_pretrained("google/medgemma-4b-it")
+    # ── Load model with optional Flash Attention 2 ────────────────────────────
+    print(f"[model] Loading {model_name} (4-bit NF4, double_quant)...")
+    attn_impl = "flash_attention_2" if use_fa2 else "eager"
+    load_kwargs = dict(quantization_config=bnb_config, device_map="auto",
+                       attn_implementation=attn_impl)
+    try:
+        model = AutoModelForImageTextToText.from_pretrained(model_name, **load_kwargs)
+        if use_fa2:
+            print("[model] Flash Attention 2 active")
+    except Exception as exc:
+        if use_fa2:
+            print(f"[warn] Flash Attention 2 unavailable ({type(exc).__name__}: {exc})")
+            print("[warn] Falling back to eager attention")
+            load_kwargs["attn_implementation"] = "eager"
+            model = AutoModelForImageTextToText.from_pretrained(model_name, **load_kwargs)
+        else:
+            raise
 
-    # ── LoRA ──────────────────────────────────────────────────────
-    print("[model] Applying LoRA adapters...")
+    processor = AutoProcessor.from_pretrained(model_name)
+    _log_gpu()
+
+    # ── DoRA / LoRA adapters ───────────────────────────────────────────────────
+    adapter_mode = "DoRA" if use_dora else "LoRA"
+    print(f"[model] Attaching {adapter_mode} adapters "
+          f"(r={cfg['lora_r']}, alpha={cfg['lora_alpha']}, "
+          f"rslora={use_rslora})...")
     peft_config = LoraConfig(
         r=cfg["lora_r"],
         lora_alpha=cfg["lora_alpha"],
-        lora_dropout=cfg["lora_dropout"],
+        lora_dropout=cfg.get("lora_dropout", 0.05),
         bias="none",
         target_modules="all-linear",
         task_type="CAUSAL_LM",
         modules_to_save=["lm_head", "embed_tokens"],
+        use_dora=use_dora,
+        use_rslora=use_rslora,
     )
     model = get_peft_model(model, peft_config)
     model.print_trainable_parameters()
+    _log_gpu()
 
-    # ── Collate fn ────────────────────────────────────────────────
+    # ── Collate function ───────────────────────────────────────────────────────
     collate_fn = get_collate_fn(processor, cfg["max_seq_length"])
 
-    # ── W&B ───────────────────────────────────────────────────────
+    # ── W&B init ───────────────────────────────────────────────────────────────
+    run_name = (
+        f"medgemma_{'dora' if use_dora else 'lora'}"
+        f"_r{cfg['lora_r']}"
+        f"_fa2{int(use_fa2)}"
+        f"_{'smoke' if smoke_test else 'full'}"
+    )
     wandb.init(
         project=cfg.get("wandb_project", "path-vqa-medgemma"),
-        entity=cfg.get("wandb_entity"),
-        name=f"medgemma_lora_r{cfg['lora_r']}_lr{cfg['learning_rate']}",
-        config=cfg,
-        dir=os.environ.get("WANDB_DIR", "/workspace/wandb"),
+        entity=cfg.get("wandb_entity") or None,
+        name=run_name,
+        config={
+            **cfg,
+            "smoke_test": smoke_test,
+            "use_flash_attention": use_fa2,
+            "use_dora": use_dora,
+            "use_rslora": use_rslora,
+            "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu",
+        },
+        dir=os.environ.get("WANDB_DIR", "wandb"),
     )
 
-    # ── Training args ─────────────────────────────────────────────
+    # ── Training arguments ─────────────────────────────────────────────────────
+    # Support both warmup_ratio (preferred) and legacy warmup_steps
+    if "warmup_ratio" in cfg:
+        warmup_kw = {"warmup_ratio": cfg["warmup_ratio"]}
+    elif "warmup_steps" in cfg:
+        warmup_kw = {"warmup_steps": cfg["warmup_steps"]}
+    else:
+        warmup_kw = {"warmup_ratio": 0.05}
+
     training_args = TrainingArguments(
         output_dir=cfg["output_dir"],
         num_train_epochs=1 if smoke_test else cfg["num_train_epochs"],
@@ -177,14 +280,14 @@ def train(cfg: dict, smoke_test: bool = False):
         gradient_checkpointing=True,
         gradient_checkpointing_kwargs={"use_reentrant": False},
         bf16=True,
-        max_grad_norm=cfg["max_grad_norm"],
-        warmup_steps=cfg["warmup_steps"],
+        max_grad_norm=cfg.get("max_grad_norm", 1.0),
+        **warmup_kw,
         learning_rate=float(cfg["learning_rate"]),
-        weight_decay=cfg["weight_decay"],
-        lr_scheduler_type=cfg["lr_scheduler_type"],
-        optim=cfg["optim"],
-        logging_steps=cfg["logging_steps"],
-        save_strategy=cfg["save_strategy"],
+        weight_decay=cfg.get("weight_decay", 0.01),
+        lr_scheduler_type=cfg.get("lr_scheduler_type", "cosine"),
+        optim=cfg.get("optim", "adamw_torch_fused"),
+        logging_steps=cfg.get("logging_steps", 10),
+        save_strategy=cfg.get("save_strategy", "steps"),
         save_steps=cfg.get("save_steps", 100),
         save_total_limit=cfg.get("save_total_limit", 3),
         push_to_hub=bool(cfg.get("hub_model_id")),
@@ -192,9 +295,11 @@ def train(cfg: dict, smoke_test: bool = False):
         eval_strategy="steps",
         eval_steps=cfg.get("save_steps", 100),
         load_best_model_at_end=True,
-        seed=cfg["seed"],
+        seed=cfg.get("seed", 3407),
         report_to="wandb",
         remove_unused_columns=False,
+        dataloader_num_workers=cfg.get("dataloader_num_workers", 2),
+        dataloader_pin_memory=True,
     )
 
     trainer = Trainer(
@@ -205,21 +310,66 @@ def train(cfg: dict, smoke_test: bool = False):
         data_collator=collate_fn,
     )
 
+    # ── Train ──────────────────────────────────────────────────────────────────
     try:
-        print("[train] Starting training...")
+        torch.cuda.empty_cache()
+        print("[train] Starting training...\n")
         trainer.train()
 
-        print(f"[train] Saving model to {cfg['output_dir']}/final...")
-        trainer.save_model(f"{cfg['output_dir']}/final")
-        processor.save_pretrained(f"{cfg['output_dir']}/final")
+        out_final = f"{cfg['output_dir']}/final"
+        print(f"\n[train] Saving model → {out_final}")
+        trainer.save_model(out_final)
+        processor.save_pretrained(out_final)
 
-        print(f"\n{'='*60}")
+        # ── W&B model artifact (versioned) ────────────────────────────────────
+        # Each completed run logs the adapter weights as a versioned artifact.
+        # In the W&B UI: Artifacts → model → v1 / v2 / v3 …
+        # Compare versions, rollback, or download any version later.
+        if not smoke_test:
+            artifact_name = (
+                cfg.get("hub_model_id", "medgemma-path-vqa")
+                .split("/")[-1]           # strip org prefix
+                .replace(" ", "-")
+            )
+            artifact = wandb.Artifact(
+                name=artifact_name,
+                type="model",
+                description=(
+                    f"Med-GaMMa 4B fine-tuned on PathVQA Enhanced. "
+                    f"{'DoRA' if use_dora else 'LoRA'} r={cfg['lora_r']}, "
+                    f"FA2={use_fa2}"
+                ),
+                metadata={
+                    "base_model": model_name,
+                    "dataset": cfg["dataset_name"],
+                    "lora_r": cfg["lora_r"],
+                    "lora_alpha": cfg["lora_alpha"],
+                    "use_dora": use_dora,
+                    "use_rslora": use_rslora,
+                    "use_flash_attention": use_fa2,
+                    "epochs": cfg["num_train_epochs"],
+                    "learning_rate": cfg["learning_rate"],
+                    "batch_effective": (
+                        cfg["per_device_train_batch_size"]
+                        * cfg["gradient_accumulation_steps"]
+                    ),
+                    "hub_model_id": cfg.get("hub_model_id"),
+                },
+            )
+            artifact.add_dir(out_final, name="adapter")
+            wandb.log_artifact(artifact)
+            print(f"[wandb] Model artifact logged → {artifact_name}:latest")
+
+        print(f"\n{'='*64}")
         print("  Training complete!")
-        print(f"  Model saved -> {cfg['output_dir']}/final")
-        print(f"{'='*60}\n")
+        print(f"  Model saved  → {out_final}")
+        if cfg.get("hub_model_id"):
+            print(f"  HF Hub push  → {cfg['hub_model_id']}")
+        print(f"{'='*64}\n")
+        _log_gpu()
 
     except KeyboardInterrupt:
-        print("\nInterrupted — saving current state...")
+        print("\n[train] Interrupted — saving checkpoint...")
         trainer.save_model(f"{cfg['output_dir']}/interrupted")
         processor.save_pretrained(f"{cfg['output_dir']}/interrupted")
 
@@ -229,19 +379,20 @@ def train(cfg: dict, smoke_test: bool = False):
     return trainer
 
 
+# ── Entry point ────────────────────────────────────────────────────────────────
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="Fine-tune Med-GaMMa on PathVQA Enhanced")
     parser.add_argument("--config", default="config/config.yaml")
-    parser.add_argument("--epochs", type=int, default=None)
-    parser.add_argument("--lr", type=float, default=None)
-    parser.add_argument(
-        "--smoke-test",
-        action="store_true",
-        help="Run 5 steps on tiny data to verify pipeline",
-    )
+    parser.add_argument("--epochs", type=int, default=None, help="Override num_train_epochs")
+    parser.add_argument("--lr", type=float, default=None, help="Override learning_rate")
+    parser.add_argument("--smoke-test", action="store_true",
+                        help="Run 5 steps on 50/20 samples to verify the full pipeline")
     args = parser.parse_args()
 
-    cfg = yaml.safe_load(open(args.config))
+    with open(args.config) as f:
+        cfg = yaml.safe_load(f)
+
     if args.epochs:
         cfg["num_train_epochs"] = args.epochs
     if args.lr:

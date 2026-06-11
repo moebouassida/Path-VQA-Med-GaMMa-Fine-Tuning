@@ -1,36 +1,41 @@
-# Core ML
-torch>=2.1.0
-transformers>=4.40.0
-datasets>=2.18.0
+# ── Core ML ───────────────────────────────────────────────────────────────────
+torch>=2.3.0
+transformers>=4.44.0
+datasets>=2.20.0
 
-# Fine-tuning
-bitsandbytes>=0.43.0
-accelerate>=0.27.0
-peft>=0.10.0
+# ── Fine-tuning ───────────────────────────────────────────────────────────────
+bitsandbytes>=0.43.3           # 4-bit NF4, double_quant
+accelerate>=0.33.0
+peft>=0.13.0                   # DoRA (use_dora) and RSLoRA (use_rslora) support
 
-# API serving
-fastapi>=0.104.0
-uvicorn[standard]>=0.24.0
-python-multipart>=0.0.6
-pydantic>=2.0.0
+# Flash Attention 2 — install separately (compiled against your CUDA version):
+#   pip install flash-attn --no-build-isolation
+# flash-attn>=2.6.0
 
-# Demo
-gradio>=4.0.0
+# ── API serving ───────────────────────────────────────────────────────────────
+fastapi>=0.111.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
+pydantic>=2.7.0
 
-# Tracking
-mlflow>=2.8.0
-wandb>=0.16.0
+# ── Demo ──────────────────────────────────────────────────────────────────────
+gradio>=4.44.0
 
-# Utilities
-Pillow>=10.0.0
+# ── Experiment tracking ───────────────────────────────────────────────────────
+wandb>=0.17.0
+mlflow>=2.14.0
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+Pillow>=10.4.0
 pyyaml>=6.0
-requests>=2.31.0
-numpy>=1.24.0
+requests>=2.32.0
+numpy>=1.26.0
+einops>=0.8.0                  # tensor manipulation used by attention implementations
 
-# Testing & code quality
-pytest>=7.4.0
-ruff>=0.1.0
-black==23.12.1
+# ── HuggingFace Hub ───────────────────────────────────────────────────────────
+huggingface_hub>=0.24.0
 
-# HuggingFace deployment
-huggingface_hub>=0.19.0
+# ── Testing & code quality ────────────────────────────────────────────────────
+pytest>=8.0.0
+ruff>=0.5.0
+black==24.4.2
