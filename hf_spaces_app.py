@@ -162,7 +162,7 @@ _STATS = """
 | **Attention** | Flash Attention 2 |
 | **Quantization** | 4-bit NF4, double quant |
 | **Dataset** | PathVQA Enhanced (~32K pairs) |
-| **GPU** | NVIDIA RTX 4090 · 24 GB |
+| **GPU** | NVIDIA RTX 5090 · 32 GB |
 
 ### Benchmark
 

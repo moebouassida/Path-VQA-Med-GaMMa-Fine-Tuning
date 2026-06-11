@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# train_runpod.sh — Full training run on RunPod RTX 4090
+# train_runpod.sh — Full training run on RunPod RTX 5090
 #
 # Usage:
 #   bash scripts/train_runpod.sh                  # full run
@@ -13,7 +13,7 @@
 
 set -euo pipefail
 
-# ── RTX 4090 environment ──────────────────────────────────────────────────────
+# ── RTX 5090 environment ──────────────────────────────────────────────────────
 export CUDA_VISIBLE_DEVICES=0
 
 # Reduces fragmentation on large VRAM GPUs; critical when batch_size >= 8

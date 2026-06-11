@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# setup_runpod.sh — One-shot environment setup for RunPod RTX 4090
+# setup_runpod.sh — One-shot environment setup for RunPod RTX 5090
 #
 # Run once after spinning up a new pod:
 #   bash scripts/setup_runpod.sh

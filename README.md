@@ -52,7 +52,7 @@ pip install -r requirements.txt
 pip install flash-attn --no-build-isolation
 ```
 
-**Requirements:** Python 3.10+, CUDA GPU (RTX 4090 recommended), HuggingFace token for Med-GaMMa access.
+**Requirements:** Python 3.10+, CUDA GPU (RTX 5090 recommended), HuggingFace token for Med-GaMMa access.
 
 ```bash
 export HF_TOKEN=hf_...
@@ -61,15 +61,15 @@ export WANDB_API_KEY=...    # for experiment tracking
 
 ---
 
-## Training on RunPod (RTX 4090)
+## Training on RunPod (RTX 5090)
 
-The recommended training path is RunPod Community Cloud with a single RTX 4090 (24 GB VRAM).
+The recommended training path is RunPod Community Cloud with a single RTX 5090 (32 GB VRAM).
 
 ### 1. Create a pod on runpod.io
 
 | Setting | Value |
 |---------|-------|
-| GPU | RTX 4090 |
+| GPU | RTX 5090 (32 GB GDDR7) |
 | Template | RunPod PyTorch 2.x (CUDA 12.1+) |
 | Container disk | 20 GB |
 | Volume disk | 50 GB |

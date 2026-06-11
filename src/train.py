@@ -5,7 +5,7 @@ Uses HuggingFace native: transformers + peft (no trl, no unsloth).
 Key improvements over v1:
   - Proper label masking: loss is computed ONLY on assistant response tokens,
     not on the system prompt / user question (major training quality fix).
-  - Flash Attention 2 for ~2x faster training on RTX 4090 (Ada Lovelace).
+  - Flash Attention 2 for ~2x faster training on RTX 5090 (Blackwell).
   - DoRA (Weight-Decomposed LoRA) — outperforms standard LoRA at same rank.
   - RSLoRA (Rank-Stabilized LoRA) — stable gradients for higher-rank adapters.
   - Double quantization saves ~0.4 bits/param with no accuracy loss.
@@ -188,7 +188,7 @@ def train(cfg: dict, smoke_test: bool = False):
     )
 
     # ── Quantization config ────────────────────────────────────────────────────
-    compute_dtype = torch.bfloat16  # RTX 4090 supports bf16 natively
+    compute_dtype = torch.bfloat16  # RTX 5090 supports bf16 natively
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=cfg.get("load_in_4bit", True),
         bnb_4bit_quant_type=cfg.get("bnb_4bit_quant_type", "nf4"),
