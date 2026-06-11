@@ -51,7 +51,7 @@ use_rslora: true
 load_in_4bit: true
 bnb_4bit_use_double_quant: true
 bnb_4bit_quant_type: "nf4"
-bnb_4bit_compute_dtype: "bfloat16"   # RTX 5090 supports bf16 natively
+bnb_4bit_compute_dtype: "bfloat16"   # RTX 5090 supports bf16 natively (requires torch>=2.8)
 
 # =========================
 # Output
