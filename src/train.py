@@ -25,6 +25,7 @@ import os
 import sys
 import argparse
 import warnings
+import logging
 import contextlib
 import io as _io
 import yaml
@@ -33,11 +34,27 @@ import wandb
 from huggingface_hub import login
 from torch.nn.utils.rnn import pad_sequence
 
-# Suppress noisy-but-harmless deprecation warnings from transformers internals
+# Suppress warnings module deprecations (some libs use warnings.warn)
 warnings.filterwarnings("ignore", message=".*processor.image_token.*")
 warnings.filterwarnings("ignore", message=".*boi_token.*")
 warnings.filterwarnings("ignore", message=".*use_cache.*gradient.*")
 warnings.filterwarnings("ignore", message=".*tie_word_embeddings.*")
+
+# Suppress transformers logger deprecations (uses logging module, not warnings)
+class _DeprecationFilter(logging.Filter):
+    _SKIP = ("processor.image_token", "boi_token", "use_cache", "tie_word_embeddings")
+    def filter(self, record):
+        return not any(kw in record.getMessage() for kw in self._SKIP)
+
+logging.getLogger("transformers").addFilter(_DeprecationFilter())
+
+# Pre-import bitsandbytes silently — peft depends on it even when 4-bit is off.
+# On CUDA 13.0 (RTX 5090 / Blackwell) the native lib is missing; error is harmless.
+with contextlib.redirect_stderr(_io.StringIO()):
+    try:
+        import bitsandbytes as _bnb  # noqa: F401
+    except Exception:
+        pass
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from data_processing import main as load_dataset
