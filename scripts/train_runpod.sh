@@ -22,6 +22,9 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 # Avoid HuggingFace tokenizer parallelism warnings during data loading
 export TOKENIZERS_PARALLELISM=false
 
+# Force Python stdout/stderr to flush immediately (prevents silent logs when piped through tee)
+export PYTHONUNBUFFERED=1
+
 # Load secrets from .env if it exists (RunPod alternative to shell secrets)
 if [ -f .env ]; then
     set -o allexport
