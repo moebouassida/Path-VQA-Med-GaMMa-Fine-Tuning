@@ -246,7 +246,6 @@ with gr.Blocks(title="PathVQA · Med-GaMMa") as demo:
                 lines=11,
                 interactive=False,
                 elem_classes=["answer-box"],
-                show_copy_button=True,
             )
             gr.Markdown(_STATS)
 
