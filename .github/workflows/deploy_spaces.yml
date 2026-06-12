@@ -1,0 +1,92 @@
+name: Deploy to HuggingFace Spaces
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "hf_spaces_app.py"
+      - "src/inference.py"
+      - "src/data_processing.py"
+      - "src/metrics.py"
+      - "config/config.yaml"
+      - "requirements.txt"
+      - ".github/workflows/deploy_spaces.yml"
+
+jobs:
+  deploy:
+    name: Sync to HF Spaces
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install huggingface_hub
+        run: pip install huggingface_hub -q
+
+      - name: Deploy to HuggingFace Spaces
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python - <<'EOF'
+          import os
+          from huggingface_hub import HfApi
+
+          api     = HfApi(token=os.environ["HF_TOKEN"])
+          repo_id = "moebouassida/pathvqa-medgemma-demo"
+
+          # Create Space if it doesn't exist yet
+          api.create_repo(
+              repo_id=repo_id,
+              repo_type="space",
+              space_sdk="gradio",
+              exist_ok=True,
+          )
+          print(f"Space: https://huggingface.co/spaces/{repo_id}")
+
+          # Space README — tells HF Spaces which file is the entry point
+          space_readme = """---
+title: PathVQA Med-GaMMa
+emoji: 🔬
+colorFrom: blue
+colorTo: indigo
+sdk: gradio
+app_file: hf_spaces_app.py
+pinned: false
+license: apache-2.0
+---
+"""
+          api.upload_file(
+              path_or_fileobj=space_readme.encode(),
+              path_in_repo="README.md",
+              repo_id=repo_id,
+              repo_type="space",
+          )
+
+          # Files to sync from this repo to the Space
+          files = [
+              ("hf_spaces_app.py",       "hf_spaces_app.py"),
+              ("requirements.txt",       "requirements.txt"),
+              ("config/config.yaml",     "config/config.yaml"),
+              ("src/__init__.py",        "src/__init__.py"),
+              ("src/inference.py",       "src/inference.py"),
+              ("src/data_processing.py", "src/data_processing.py"),
+              ("src/metrics.py",         "src/metrics.py"),
+          ]
+          for local, remote in files:
+              if os.path.exists(local):
+                  api.upload_file(
+                      path_or_fileobj=local,
+                      path_in_repo=remote,
+                      repo_id=repo_id,
+                      repo_type="space",
+                  )
+                  print(f"  ✓ {local}")
+              else:
+                  print(f"  - skipped (not found): {local}")
+
+          print(f"\nDeployed → https://huggingface.co/spaces/{repo_id}")
+          EOF
