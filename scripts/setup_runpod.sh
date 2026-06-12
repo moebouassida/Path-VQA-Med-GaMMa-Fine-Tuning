@@ -29,15 +29,29 @@ echo ""
 
 # ── 1. Project dependencies ───────────────────────────────────────────────────
 echo "[1/3] Installing project requirements..."
-pip install --ignore-installed --timeout 120 -r requirements.txt -q
 
-# Fix torchvision/torchaudio version mismatch with the installed torch.
-# RunPod base images ship old torchvision/torchaudio that conflict after torch upgrade.
-CUDA_TAG=$(python -c "import torch; v=torch.version.cuda; print('cu' + v.replace('.','')[:3])" 2>/dev/null || echo "cu124")
-echo "      Fixing torchvision/torchaudio for torch $(python -c 'import torch; print(torch.__version__)') ($CUDA_TAG)..."
-pip install --upgrade torchvision torchaudio \
-    --index-url https://download.pytorch.org/whl/${CUDA_TAG} \
+# Detect the CUDA driver version and pick a matching torch index.
+# The driver caps which CUDA runtime version PyTorch can use — installing a
+# torch built for a newer CUDA than the driver supports breaks CUDA visibility.
+DRIVER_CUDA=$(python -c "
+import subprocess, re
+out = subprocess.run(['nvidia-smi'], capture_output=True, text=True).stdout
+m = re.search(r'CUDA Version: (\d+\.\d+)', out)
+if m:
+    major, minor = m.group(1).split('.')
+    print(f'cu{major}{minor.zfill(2)}')
+else:
+    print('cu124')
+" 2>/dev/null || echo "cu124")
+echo "      Driver CUDA: $DRIVER_CUDA — installing matching torch..."
+
+# Install torch first from the driver-compatible index, then everything else.
+pip install torch torchvision torchaudio \
+    --index-url https://download.pytorch.org/whl/${DRIVER_CUDA} \
     --timeout 120 -q
+
+# Install remaining project deps (torch already satisfied above)
+pip install --timeout 120 -r requirements.txt -q
 echo "      Dependencies installed."
 echo ""
 
