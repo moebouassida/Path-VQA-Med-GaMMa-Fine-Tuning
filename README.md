@@ -37,17 +37,16 @@ Answers yes/no and open-ended clinical questions from H&E and other pathology im
 PathVQA Enhanced (HF Hub)
         │
         ▼
-data_processing.py  ← conversation format + label masking
+src/data_processing.py  ← conversation format + label masking
         │
         ▼
-train.py  ← DoRA + RSLoRA fine-tuning (bfloat16, SDPA attention)
+src/train.py  ← DoRA + RSLoRA fine-tuning (bfloat16, SDPA attention)
         │
-        ▼
-outputs/final/
-        ├── src/main.py        ← FastAPI production API
-        ├── src/inference.py   ← CLI inference
-        ├── src/evaluate.py    ← evaluation + quality gates
-        └── hf_spaces_app.py   ← Gradio demo (HF Spaces)
+        ├── outputs/final/          ← adapter weights (pushed to HF Hub)
+        ├── src/evaluate.py         ← evaluation + quality gates
+        ├── src/inference.py        ← CLI inference
+        ├── src/main.py             ← FastAPI production API
+        └── hf_spaces_app.py        ← Gradio demo (HF Spaces)
 ```
 
 | Component | Details |
@@ -217,8 +216,11 @@ python -m src.inference \
 
 **Gradio demo:**
 ```bash
-MODEL_ID=moebouassida/medgemma-4b-path-vqa python hf_spaces_app.py
+make demo
 # → http://localhost:7860
+
+# or with explicit model path:
+MODEL_ID=moebouassida/medgemma-4b-path-vqa python hf_spaces_app.py
 ```
 
 **FastAPI server:**
