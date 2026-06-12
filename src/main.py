@@ -29,7 +29,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 CONFIG_PATH = os.getenv("CONFIG_PATH", "config/config.yaml")
-MODEL_PATH = Path(os.getenv("MODEL_PATH", "outputs/final"))
+MODEL_PATH  = Path(os.getenv("MODEL_PATH", "outputs/final"))
+HF_MODEL_ID = os.getenv("MODEL_ID", "moebouassida/medgemma-4b-path-vqa")
 
 cfg: dict = {}
 if os.path.exists(CONFIG_PATH):
@@ -44,13 +45,10 @@ _processor = None
 def get_model():
     global _model, _processor
     if _model is None:
-        if not MODEL_PATH.exists():
-            raise HTTPException(
-                status_code=503,
-                detail=f"Model not found at {MODEL_PATH}. Run training first.",
-            )
         from inference import load_model
-        _model, _processor = load_model(str(MODEL_PATH))
+        # Prefer local weights; fall back to HF Hub
+        src = str(MODEL_PATH) if MODEL_PATH.exists() else HF_MODEL_ID
+        _model, _processor = load_model(src, load_in_4bit=False)
     return _model, _processor
 
 
