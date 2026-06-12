@@ -1,5 +1,7 @@
 # ── Core ML ───────────────────────────────────────────────────────────────────
-torch>=2.8.0                   # 2.8+ required for RTX 5090 (Blackwell / CC 12.0)
+# torch/torchvision/torchaudio are installed by scripts/setup_runpod.sh with the
+# correct CUDA index for the pod's driver version. Do NOT add them here — pip
+# would re-upgrade to the system-default (cu130) and break CUDA visibility.
 transformers>=4.44.0
 datasets>=2.20.0
 
