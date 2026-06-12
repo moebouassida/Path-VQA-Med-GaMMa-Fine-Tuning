@@ -1,12 +1,11 @@
 """
-main.py — FastAPI production server for Med-GaMMa PathVQA.
+FastAPI server for Med-GaMMa PathVQA.
 
-Endpoints:
-    GET  /health          — liveness + GPU stats
-    GET  /info            — model metadata
-    POST /predict         — image URL + question → answer
-    POST /predict/upload  — multipart file upload + question → answer
-    GET  /docs            — Swagger UI (auto-generated)
+GET  /health          liveness + GPU stats
+GET  /info            model metadata
+POST /predict         image URL + question → answer
+POST /predict/upload  multipart image upload + question → answer
+GET  /docs            Swagger UI
 """
 
 import os
@@ -27,7 +26,6 @@ from pydantic import BaseModel, HttpUrl
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# ── Config ─────────────────────────────────────────────────────────────────────
 CONFIG_PATH = os.getenv("CONFIG_PATH", "config/config.yaml")
 MODEL_PATH  = Path(os.getenv("MODEL_PATH", "outputs/final"))
 HF_MODEL_ID = os.getenv("MODEL_ID", "moebouassida/medgemma-4b-path-vqa")
@@ -37,7 +35,6 @@ if os.path.exists(CONFIG_PATH):
     with open(CONFIG_PATH) as f:
         cfg = yaml.safe_load(f)
 
-# ── Model (lazy-loaded on first request) ──────────────────────────────────────
 _model = None
 _processor = None
 
@@ -46,13 +43,12 @@ def get_model():
     global _model, _processor
     if _model is None:
         from inference import load_model
-        # Prefer local weights; fall back to HF Hub
+        # prefer local weights; fall back to HF Hub
         src = str(MODEL_PATH) if MODEL_PATH.exists() else HF_MODEL_ID
         _model, _processor = load_model(src, load_in_4bit=False)
     return _model, _processor
 
 
-# ── GPU helpers ────────────────────────────────────────────────────────────────
 def _gpu_info() -> dict:
     if not torch.cuda.is_available():
         return {"available": False}
@@ -66,7 +62,6 @@ def _gpu_info() -> dict:
     }
 
 
-# ── App ────────────────────────────────────────────────────────────────────────
 app = FastAPI(
     title="Path-VQA · Med-GaMMa API",
     description=(
@@ -85,7 +80,6 @@ app.add_middleware(
 )
 
 
-# ── Request / Response schemas ─────────────────────────────────────────────────
 class PredictRequest(BaseModel):
     image_url: str
     question: str
@@ -101,11 +95,8 @@ class PredictResponse(BaseModel):
     model: str
 
 
-# ── Endpoints ──────────────────────────────────────────────────────────────────
-
 @app.get("/health")
 def health():
-    """Liveness check with GPU diagnostics."""
     return {
         "status": "ok",
         "model_loaded": _model is not None,
@@ -117,7 +108,6 @@ def health():
 
 @app.get("/info")
 def info():
-    """Model and task metadata."""
     return {
         "model": "Med-GaMMa 4B (google/medgemma-4b-it)",
         "adapter": "DoRA / LoRA fine-tuned",
@@ -132,7 +122,6 @@ def info():
 
 @app.post("/predict", response_model=PredictResponse)
 def predict_from_url(req: PredictRequest):
-    """Predict from an image URL + question."""
     model, processor = get_model()
 
     try:
@@ -171,7 +160,6 @@ async def predict_from_upload(
     temperature: float = Form(1.0),
     do_sample: bool = Form(False),
 ):
-    """Predict from an uploaded image file + question form field."""
     model, processor = get_model()
 
     try:

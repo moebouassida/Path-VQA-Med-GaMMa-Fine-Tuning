@@ -1,10 +1,3 @@
-"""
-HuggingFace Spaces — PathVQA · Med-GaMMa
-
-Production Gradio demo for pathology Visual Question Answering.
-Med-GaMMa 4B fine-tuned on PathVQA Enhanced (~32K QA pairs).
-"""
-
 import os
 import sys
 import time
@@ -13,7 +6,7 @@ from pathlib import Path
 import gradio as gr
 from PIL import Image
 
-# ── ZeroGPU: no-op fallback when running outside HF Spaces ────────────────────
+# no-op when running outside HF Spaces
 try:
     import spaces
 except ImportError:
@@ -22,15 +15,12 @@ except ImportError:
         def GPU(duration=120):
             return lambda f: f
 
-# ── Path setup ─────────────────────────────────────────────────────────────────
 _ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _ROOT)
 
-# ── Model config ───────────────────────────────────────────────────────────────
 HF_MODEL_ID = os.getenv("MODEL_ID", "moebouassida/medgemma-4b-path-vqa")
 MODEL_PATH = Path(os.getenv("MODEL_PATH", "outputs/final"))
 
-# Model loaded lazily inside @spaces.GPU so GPU is available when loading
 _model = None
 _processor = None
 
@@ -41,11 +31,11 @@ def _load_model():
         return
     from src.inference import load_model
     src = str(MODEL_PATH) if MODEL_PATH.exists() else HF_MODEL_ID
-    # bf16 on A100 is faster than 4-bit (no dequant overhead)
+    # bf16 is faster than 4-bit on A100 — no dequant overhead
     _model, _processor = load_model(src, load_in_4bit=False)
     print(f"[demo] Model loaded from: {src}")
 
-# ── Pre-load dataset examples ─────────────────────────────────────────────────
+
 _examples: list = []
 try:
     from datasets import load_dataset as _hf_load
@@ -55,7 +45,6 @@ try:
 except Exception as e:
     print(f"[demo] Could not pre-load examples: {e}")
 
-# ── Quick question shortcuts ──────────────────────────────────────────────────
 QUICK_QUESTIONS = [
     "What type of tissue is shown?",
     "Is there evidence of malignancy?",
@@ -68,14 +57,8 @@ QUICK_QUESTIONS = [
 ]
 
 
-# ── Inference function ─────────────────────────────────────────────────────────
-
 @spaces.GPU(duration=120)
 def run_vqa(image: Image.Image, question: str, max_tokens: int = 256) -> tuple[str, str]:
-    """
-    Returns (answer_text, answer_type_html).
-    Model is loaded lazily on first call so GPU is available during load.
-    """
     if image is None:
         return "Please upload a pathology image.", ""
     if not question or not question.strip():
@@ -110,7 +93,6 @@ def run_vqa(image: Image.Image, question: str, max_tokens: int = 256) -> tuple[s
         return f"Error: {e}", ""
 
 
-# ── CSS ────────────────────────────────────────────────────────────────────────
 _CSS = """
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
@@ -118,7 +100,6 @@ footer { display: none !important; }
 
 body, .gradio-container { font-family: 'Inter', sans-serif !important; }
 
-/* Hero */
 .vqa-hero {
     background: linear-gradient(120deg, #0f172a 0%, #1e3a8a 50%, #1d4ed8 100%);
     border-radius: 16px;
@@ -147,7 +128,6 @@ body, .gradio-container { font-family: 'Inter', sans-serif !important; }
     letter-spacing: 0.3px;
 }
 
-/* Panel cards */
 .input-panel, .output-panel {
     background: #ffffff;
     border: 1px solid #e2e8f0;
@@ -156,7 +136,6 @@ body, .gradio-container { font-family: 'Inter', sans-serif !important; }
     box-shadow: 0 1px 4px rgba(0,0,0,0.06);
 }
 
-/* Answer textbox */
 .answer-box textarea {
     font-size: 1.05em !important;
     line-height: 1.8 !important;
@@ -168,7 +147,6 @@ body, .gradio-container { font-family: 'Inter', sans-serif !important; }
     min-height: 180px !important;
 }
 
-/* Quick question chips */
 .chip-btn button {
     border-radius: 20px !important;
     font-size: 0.78em !important;
@@ -184,7 +162,6 @@ body, .gradio-container { font-family: 'Inter', sans-serif !important; }
     color: #1d4ed8 !important;
 }
 
-/* Answer type badge */
 .answer-meta {
     display: flex;
     align-items: center;
@@ -193,7 +170,6 @@ body, .gradio-container { font-family: 'Inter', sans-serif !important; }
     min-height: 28px;
 }
 
-/* Model card section */
 .model-card-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -238,7 +214,6 @@ body, .gradio-container { font-family: 'Inter', sans-serif !important; }
 .mc-detail-key { color: #64748b; font-weight: 500; }
 .mc-detail-val { color: #0f172a; font-weight: 600; }
 
-/* Section divider */
 .section-title {
     font-size: 0.7em;
     font-weight: 700;
@@ -249,7 +224,6 @@ body, .gradio-container { font-family: 'Inter', sans-serif !important; }
 }
 """
 
-# ── Hero ───────────────────────────────────────────────────────────────────────
 _HERO = """
 <div class="vqa-hero">
   <div>
@@ -285,12 +259,10 @@ _HERO = """
 </div>
 """
 
-# ── Model card (bottom) ────────────────────────────────────────────────────────
 _MODEL_CARD = """
 <div style="margin-top:8px">
   <div class="section-title">Performance · Fine-tuned vs Base Model</div>
 
-  <!-- Benchmark comparison table -->
   <div style="overflow-x:auto;margin-bottom:16px">
     <table style="width:100%;border-collapse:collapse;font-size:0.88em;background:#fff;
                   border:1px solid #e2e8f0;border-radius:12px;overflow:hidden">
@@ -345,7 +317,6 @@ _MODEL_CARD = """
     </p>
   </div>
 
-  <!-- Stat cards -->
   <div class="model-card-grid">
     <div class="mc-stat">
       <div class="mc-stat-value">~72%</div>
@@ -373,7 +344,6 @@ _MODEL_CARD = """
     </div>
   </div>
 
-  <!-- Architecture details -->
   <div class="mc-detail-grid" style="margin-top:14px">
     <div class="mc-detail-row">
       <span class="mc-detail-key">Base model</span>
@@ -416,7 +386,6 @@ _MODEL_CARD = """
 </div>
 """
 
-# ── Gradio UI ──────────────────────────────────────────────────────────────────
 with gr.Blocks(
     title="PathVQA · Med-GaMMa",
     theme=gr.themes.Soft(
@@ -430,8 +399,6 @@ with gr.Blocks(
     gr.HTML(_HERO)
 
     with gr.Row(equal_height=False):
-
-        # ── Left: Input ───────────────────────────────────────────────────────
         with gr.Column(scale=4, min_width=320):
             image_in = gr.Image(
                 type="pil",
@@ -453,7 +420,6 @@ with gr.Blocks(
                     label="Max tokens",
                 )
 
-        # ── Right: Output ─────────────────────────────────────────────────────
         with gr.Column(scale=6, min_width=380):
             answer_type_html = gr.HTML(
                 '<div class="answer-meta"></div>'
@@ -466,7 +432,6 @@ with gr.Blocks(
                 placeholder="Answer will appear here after you click Analyze…",
             )
 
-    # ── Quick questions (full width) ──────────────────────────────────────────
     gr.HTML('<div class="section-title" style="margin:16px 0 8px 0">Quick questions</div>')
     with gr.Row():
         for q in QUICK_QUESTIONS:
@@ -475,7 +440,6 @@ with gr.Blocks(
                 outputs=question_in,
             )
 
-    # ── Examples ──────────────────────────────────────────────────────────────
     if _examples:
         gr.HTML('<div class="section-title" style="margin:18px 0 6px 0">Examples from PathVQA test split</div>')
         gr.Examples(
@@ -484,10 +448,8 @@ with gr.Blocks(
             examples_per_page=4,
         )
 
-    # ── Model card (bottom) ───────────────────────────────────────────────────
     gr.HTML(_MODEL_CARD)
 
-    # ── Event wiring ──────────────────────────────────────────────────────────
     submit_btn.click(
         fn=run_vqa,
         inputs=[image_in, question_in, max_tokens_slider],

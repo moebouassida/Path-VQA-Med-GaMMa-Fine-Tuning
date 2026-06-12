@@ -1,13 +1,9 @@
 """
-evaluate.py — Standalone evaluation with quality gates.
-
 Usage:
     python src/evaluate.py --model outputs/final --config config/config.yaml
     python src/evaluate.py --model outputs/final --config config/config.yaml --max-samples 200
 
-Exit codes:
-    0 — all quality gates passed
-    1 — one or more gates failed
+Exit codes: 0 = all gates passed, 1 = one or more failed.
 """
 
 import os
@@ -35,10 +31,8 @@ def evaluate(
     print(f"  Dataset : {cfg['dataset_name']}")
     print(f"{'='*62}\n")
 
-    # Load model
     model, processor = load_model(model_path, load_in_4bit=load_in_4bit)
 
-    # Load test split directly
     print("[eval] Loading test split...")
     dataset = hf_load(cfg["dataset_name"])
     test_split = dataset["test"]
@@ -56,11 +50,8 @@ def evaluate(
         try:
             image = sample["image"].convert("RGB")
             answer = predict(model, processor, image, sample["question"])
-            target = sample["answer"]
-
-            score = vqa_score(answer, target)
+            score = vqa_score(answer, sample["answer"])
             results.append(score)
-
         except Exception as e:
             print(f"  [warn] Sample {i} failed: {e}")
             continue
@@ -68,7 +59,6 @@ def evaluate(
     scores = aggregate_scores(results)
     passed, failures = check_quality_gates(scores, cfg)
 
-    # Print results
     print(f"\n  {'Metric':<30} {'Value':>8}   {'Threshold':>10}   {'Status'}")
     print(f"  {'-'*65}")
 
@@ -84,9 +74,7 @@ def evaluate(
         note = "  <- BELOW THRESHOLD" if not ok else ""
         print(f"  {metric:<30} {value:>8.4f}   {threshold:>10.4f}   {status}{note}")
 
-    print(
-        f"\n  {'overall_exact_match':<30} {scores.get('overall_exact_match', 0):>8.4f}"
-    )
+    print(f"\n  {'overall_exact_match':<30} {scores.get('overall_exact_match', 0):>8.4f}")
     print(f"  {'overall_bleu':<30} {scores.get('overall_bleu', 0):>8.4f}")
     print(f"  {'yes_no_count':<30} {scores.get('yes_no_count', 0):>8}")
     print(f"  {'open_ended_count':<30} {scores.get('open_ended_count', 0):>8}")
@@ -97,7 +85,6 @@ def evaluate(
     else:
         print(f"\n  Quality gate failed: {failures}\n")
 
-    # Save results
     output = {
         "scores": scores,
         "gates": gates,

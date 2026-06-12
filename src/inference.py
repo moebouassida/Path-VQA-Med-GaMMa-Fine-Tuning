@@ -1,6 +1,4 @@
 """
-inference.py — Med-GaMMa inference.
-
 Usage:
     python -m src.inference --image path/to/slide.jpg --question "What is present?"
     python -m src.inference --image-url https://... --question "Is this benign?"
@@ -25,18 +23,14 @@ SYSTEM_PROMPT = (
 
 
 def load_model(model_path: str, load_in_4bit: bool = True):
-    """
-    Load a fine-tuned Med-GaMMa DoRA adapter.
-    Accepts local directory paths or HuggingFace Hub model IDs.
-    Uses PeftModel.from_pretrained so DoRA magnitude vectors load correctly.
-    """
+    # PeftModel.from_pretrained required — AutoModelForImageTextToText doesn't
+    # handle DoRA magnitude vectors correctly when loading from an adapter directory
     from transformers import AutoProcessor, AutoModelForImageTextToText, BitsAndBytesConfig
     from peft import PeftModel, PeftConfig
 
     token = os.getenv("HF_TOKEN")
     print(f"[inference] Loading model: {model_path}")
 
-    # Read adapter config to get the base model ID
     peft_config = PeftConfig.from_pretrained(model_path, token=token)
     base_id = peft_config.base_model_name_or_path
     print(f"[inference] Base model : {base_id}")
@@ -72,7 +66,6 @@ def load_model(model_path: str, load_in_4bit: bool = True):
 
 
 def load_image(image_path: str = None, image_url: str = None) -> Image.Image:
-    """Load a PIL image from a local path or URL."""
     if image_path:
         return Image.open(image_path).convert("RGB")
     if image_url:
@@ -94,24 +87,6 @@ def predict(
     repetition_penalty: float = 1.1,
     instruction: str = SYSTEM_PROMPT,
 ) -> str:
-    """
-    Run single-image pathology VQA inference.
-
-    Args:
-        model: loaded Med-GaMMa model
-        processor: corresponding AutoProcessor
-        image: PIL Image (RGB)
-        question: clinical question string
-        max_new_tokens: max answer tokens to generate
-        temperature: sampling temperature (used when do_sample=True)
-        top_p: nucleus sampling p (used when do_sample=True)
-        do_sample: False = greedy/beam, True = sampling
-        repetition_penalty: penalise repeated tokens (>1.0 reduces repetition)
-        instruction: system prompt
-
-    Returns:
-        str: model answer text
-    """
     conversation = [
         {
             "role": "user",
@@ -159,10 +134,6 @@ def predict_batch(
     max_new_tokens: int = 256,
     instruction: str = SYSTEM_PROMPT,
 ) -> list[str]:
-    """
-    Run batch inference for multiple image+question pairs.
-    Useful for evaluation loops — avoids per-sample overhead.
-    """
     assert len(images) == len(questions), "images and questions must have equal length"
 
     conversations = [

@@ -1,17 +1,3 @@
-"""
-data_processing.py — Load and format PathVQA Enhanced dataset for Med-GaMMa fine-tuning.
-
-Dataset: moebouassida/path-vqa-enhanced
-    - image: PIL Image
-    - question: str
-    - answer: str (short original answer)
-    - enhanced_answer: str (clinically detailed explanation)
-
-Conversation format for Med-GaMMa (Gemma 3 chat template):
-    user:      [instruction] + [image] + [question]
-    assistant: [enhanced_answer]
-"""
-
 from datasets import load_dataset
 
 INSTRUCTION = (
@@ -22,16 +8,7 @@ INSTRUCTION = (
 
 
 def convert_to_conversation(sample: dict, use_enhanced: bool = True) -> dict:
-    """
-    Convert a PathVQA sample to Med-GaMMa conversation format.
-
-    Args:
-        sample: dict with keys: image, question, answer, enhanced_answer
-        use_enhanced: if True, use enhanced_answer (richer); else use answer
-    """
     answer_text = sample["enhanced_answer"] if use_enhanced else sample["answer"]
-
-    # Fallback to short answer if enhanced is empty
     if not answer_text or str(answer_text).strip() == "":
         answer_text = sample["answer"]
 
@@ -61,12 +38,6 @@ def main(
     max_train_samples: int = None,
     max_val_samples: int = None,
 ):
-    """
-    Load PathVQA Enhanced and return train/val conversation lists.
-
-    Returns:
-        (train_conversations, val_conversations)
-    """
     print(f"[data] Loading {dataset_name}...")
     dataset = load_dataset(dataset_name)
 
@@ -80,7 +51,6 @@ def main(
     if max_val_samples:
         val_split = val_split.select(range(min(max_val_samples, len(val_split))))
 
-    # Log yes/no balance
     yes_no = sum(1 for s in train_split if str(s["answer"]).strip().lower() in ("yes", "no"))
     print(
         f"[data] Yes/No questions: {yes_no}/{len(train_split)} "

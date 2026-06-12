@@ -1,84 +1,52 @@
-# =========================
-# Model & Dataset
-# =========================
 pretrained_model: "google/medgemma-4b-it"
 dataset_name: "moebouassida/path-vqa-enhanced"
-use_enhanced_answer: true            # use enhanced_answer column (richer explanations)
+use_enhanced_answer: true
 
-# =========================
-# Training  (H100 SXM / 80 GB HBM3 optimized)
-# =========================
-per_device_train_batch_size: 8       # SigLIP attention is O(batch * patches^2); 32 OOMs on H100
-gradient_accumulation_steps: 4       # effective batch size = 32
+per_device_train_batch_size: 8       # SigLIP attention is O(batch * patches^2); higher values OOM on H100
+gradient_accumulation_steps: 4       # effective batch = 32
 num_train_epochs: 3
 learning_rate: 2e-4
-warmup_ratio: 0.05                   # 5% of total steps for LR warm-up (converted to warmup_steps in code)
+warmup_ratio: 0.05
 max_grad_norm: 1.0
 logging_steps: 10
 save_strategy: "steps"
 save_steps: 100
 save_total_limit: 3
-optim: "adamw_torch_fused"           # fastest AdamW on CUDA
+optim: "adamw_torch_fused"
 weight_decay: 0.01
 lr_scheduler_type: "cosine"
 max_seq_length: 2048
 seed: 3407
 dataloader_num_workers: 2
 
-# =========================
-# Flash Attention 2
-# Requires: pip install flash-attn --no-build-isolation
-# Gives ~2x training speedup on Blackwell GPUs (RTX 5090).
-# Disabled by default: no prebuilt wheel for cu130+torch2.12 and system CUDA
-# mismatch prevents compiling from source. Enable only if flash-attn installs.
-# =========================
+# Flash Attention 2 gives ~2x training speedup but requires a prebuilt wheel.
+# Disabled by default — no wheel exists for cu130+torch2.12 and the CUDA driver
+# mismatch on RunPod pods prevents compiling from source.
+# pip install flash-attn --no-build-isolation
 use_flash_attention: false
+attn_implementation: "sdpa"   # sdpa = PyTorch fused attention, no install needed
 
-# attn_implementation: "sdpa" | "eager" | "flash_attention_2"
-# sdpa = PyTorch built-in fused attention, faster than eager, no install needed.
-# Automatically set to "sdpa" when use_flash_attention=false.
-attn_implementation: "sdpa"
-
-# =========================
-# LoRA / DoRA / RSLoRA
-# DoRA  = Weight-Decomposed LoRA — better parameter efficiency than standard LoRA
-# RSLoRA = Rank-Stabilized LoRA  — stabilises gradient flow for higher ranks
-# Requires: peft >= 0.13.0
-# =========================
 lora_r: 16
 lora_alpha: 32
 lora_dropout: 0.05
 use_dora: true
-use_rslora: true
+use_rslora: true               # requires peft >= 0.13.0
 
-# =========================
-# 4-bit NF4 Quantization  (QLoRA)
-# Disabled by default: bitsandbytes is incompatible with CUDA 13.0 (RTX 5090 / Blackwell).
-# The RTX 5090 has 32 GB VRAM so QLoRA is unnecessary regardless.
-# Enable only on older GPUs with limited VRAM (e.g. RTX 3090 24 GB).
-# =========================
+# 4-bit NF4 disabled by default — bitsandbytes doesn't support CUDA 13.0 yet.
+# Enable on older GPUs with limited VRAM (e.g. RTX 3090 24 GB).
 load_in_4bit: false
 bnb_4bit_use_double_quant: true
 bnb_4bit_quant_type: "nf4"
-bnb_4bit_compute_dtype: "bfloat16"   # RTX 5090 supports bf16 natively (requires torch>=2.8)
+bnb_4bit_compute_dtype: "bfloat16"
 
-# =========================
-# Output
-# =========================
 output_dir: "outputs"
 resize: 512
 
-# =========================
-# Quality Gates
-# =========================
-gate_exact_match: 0.55               # yes/no accuracy threshold
-gate_bleu: 0.20                      # open-ended BLEU threshold
+gate_exact_match: 0.55
+gate_bleu: 0.20
 
-# =========================
-# Tracking
-# =========================
-hub_model_id: "moebouassida/medgemma-4b-path-vqa"   # set to null to disable HF Hub push
+hub_model_id: "moebouassida/medgemma-4b-path-vqa"   # set to null to skip HF Hub push
 wandb_project: "path-vqa-medgemma"
-wandb_entity: null                   # set to your W&B username/org
+wandb_entity: null
 mlflow_experiment: "path-vqa-medgemma"
-mlflow_tracking_uri: ""              # blank = local mlruns/
+mlflow_tracking_uri: ""   # blank = local mlruns/

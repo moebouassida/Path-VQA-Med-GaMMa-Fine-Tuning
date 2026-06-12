@@ -1,23 +1,7 @@
 """
-train.py — Med-GaMMa fine-tuning on PathVQA Enhanced.
-Uses HuggingFace native: transformers + peft (no trl, no unsloth).
-
-Key design decisions:
-  - Proper label masking: loss is computed ONLY on assistant response tokens,
-    not on the system prompt / user question (major training quality fix).
-  - DoRA (Weight-Decomposed LoRA) — outperforms standard LoRA at same rank.
-  - RSLoRA (Rank-Stabilized LoRA) — stable gradients for higher-rank adapters.
-  - Flash Attention 2 optional (~2x speedup on Blackwell); falls back to eager.
-  - 4-bit NF4 optional; disabled by default (CUDA 13.0 / RTX 5090 incompatibility
-    with bitsandbytes — 32 GB VRAM makes QLoRA unnecessary anyway).
-  - warmup_steps computed from warmup_ratio (warmup_ratio deprecated in v5.2).
-  - token_type_ids omitted — Gemma is decoder-only.
-  - GPU VRAM usage logged at key checkpoints.
-
 Usage:
     python -m src.train
-    python -m src.train --config config/config.yaml
-    python -m src.train --smoke-test          # 5 steps, tiny data
+    python -m src.train --smoke-test
     python -m src.train --epochs 5 --lr 1e-4
 """
 
@@ -34,13 +18,12 @@ import wandb
 from huggingface_hub import login
 from torch.nn.utils.rnn import pad_sequence
 
-# Suppress warnings module deprecations (some libs use warnings.warn)
+# suppress processor deprecation warnings that flood stdout during training
 warnings.filterwarnings("ignore", message=".*processor.image_token.*")
 warnings.filterwarnings("ignore", message=".*boi_token.*")
 warnings.filterwarnings("ignore", message=".*use_cache.*gradient.*")
 warnings.filterwarnings("ignore", message=".*tie_word_embeddings.*")
 
-# Suppress transformers logger deprecations (uses logging module, not warnings)
 class _DeprecationFilter(logging.Filter):
     _SKIP = ("processor.image_token", "boi_token", "use_cache", "tie_word_embeddings")
     def filter(self, record):
@@ -48,8 +31,8 @@ class _DeprecationFilter(logging.Filter):
 
 logging.getLogger("transformers").addFilter(_DeprecationFilter())
 
-# Pre-import bitsandbytes silently — peft depends on it even when 4-bit is off.
-# On CUDA 13.0 (RTX 5090 / Blackwell) the native lib is missing; error is harmless.
+# peft pulls in bitsandbytes even when 4-bit is disabled; silence the import
+# error on CUDA 13.0 where the native lib is missing (harmless when 4-bit is off)
 with contextlib.redirect_stderr(_io.StringIO()):
     try:
         import bitsandbytes as _bnb  # noqa: F401
@@ -60,10 +43,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from data_processing import main as load_dataset
 
 
-# ── Utilities ─────────────────────────────────────────────────────────────────
-
 def _log_gpu():
-    """Print current VRAM usage (allocated / reserved / total)."""
     if not torch.cuda.is_available():
         return
     alloc = torch.cuda.memory_allocated() / 1e9
@@ -72,20 +52,7 @@ def _log_gpu():
     print(f"  VRAM: {alloc:.1f} GB used | {resv:.1f} GB reserved | {total:.1f} GB total")
 
 
-# ── Collate function ───────────────────────────────────────────────────────────
-
 def get_collate_fn(processor, max_seq_length: int):
-    """
-    Build a collate fn for Med-GaMMa vision+text batches.
-
-    Labels are masked so the cross-entropy loss is computed ONLY on the
-    assistant's response tokens.  Everything before (system prompt, user
-    question, image tokens) is set to -100 and ignored.
-
-    Why this matters: without it the model wastes capacity memorising the
-    fixed instruction text instead of learning to generate good answers.
-    """
-
     def collate_fn(examples):
         batch_input_ids = []
         batch_attention = []
@@ -93,7 +60,6 @@ def get_collate_fn(processor, max_seq_length: int):
         batch_prompt_lens = []
 
         for e in examples:
-            # ── Extract image ──────────────────────────────────────────────
             img = None
             for msg in e["messages"]:
                 for part in msg["content"]:
@@ -103,7 +69,6 @@ def get_collate_fn(processor, max_seq_length: int):
                 if img:
                     break
 
-            # ── Full sequence: user turn + assistant turn ──────────────────
             full_text = processor.apply_chat_template(
                 e["messages"],
                 tokenize=False,
@@ -117,9 +82,8 @@ def get_collate_fn(processor, max_seq_length: int):
                 max_length=max_seq_length,
             )
 
-            # ── Prompt-only length (used to mask instruction tokens) ────────
-            # apply_chat_template with add_generation_prompt=True gives us
-            # everything up to (and including) the start of the assistant turn.
+            # add_generation_prompt=True gives everything up to the start of the
+            # assistant turn — used to compute prompt length for label masking
             prompt_msgs = [m for m in e["messages"] if m["role"] != "assistant"]
             prompt_text = processor.apply_chat_template(
                 prompt_msgs,
@@ -139,13 +103,14 @@ def get_collate_fn(processor, max_seq_length: int):
             batch_pixel_values.append(full_inputs["pixel_values"][0])
             batch_prompt_lens.append(prompt_inputs["input_ids"].shape[1])
 
-        # ── Pad to longest sequence in batch ──────────────────────────────
         pad_id = processor.tokenizer.pad_token_id
         input_ids = pad_sequence(batch_input_ids, batch_first=True, padding_value=pad_id)
         attention_mask = pad_sequence(batch_attention, batch_first=True, padding_value=0)
         pixel_values = torch.stack(batch_pixel_values)
 
-        # ── Build labels: -100 on pad tokens AND on instruction tokens ─────
+        # loss computed only on assistant response — mask pad tokens and the
+        # entire instruction/question prefix so the model isn't rewarded for
+        # memorising the system prompt
         labels = input_ids.clone()
         labels[labels == pad_id] = -100
         for i, prompt_len in enumerate(batch_prompt_lens):
@@ -156,13 +121,11 @@ def get_collate_fn(processor, max_seq_length: int):
             "attention_mask": attention_mask,
             "pixel_values": pixel_values,
             "labels": labels,
-            # token_type_ids intentionally omitted — Gemma is decoder-only.
+            # token_type_ids omitted — Gemma is decoder-only
         }
 
     return collate_fn
 
-
-# ── Main training function ─────────────────────────────────────────────────────
 
 def train(cfg: dict, smoke_test: bool = False):
     from transformers import (
@@ -177,8 +140,7 @@ def train(cfg: dict, smoke_test: bool = False):
     use_fa2 = cfg.get("use_flash_attention", False)
     use_dora = cfg.get("use_dora", False)
     use_rslora = cfg.get("use_rslora", False)
-    # attn_implementation: flash_attention_2 > sdpa > eager (in order of speed)
-    # sdpa uses PyTorch's built-in fused attention — no extra install, works on CUDA 13.0
+    # sdpa = PyTorch built-in fused attention, no extra install needed
     attn_impl = cfg.get("attn_implementation", "flash_attention_2" if use_fa2 else "sdpa")
     load_in_4bit = cfg.get("load_in_4bit", False)
 
@@ -200,7 +162,6 @@ def train(cfg: dict, smoke_test: bool = False):
     print(f"  Device      : {torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'}")
     print("=" * 64 + "\n")
 
-    # ── HF login ──────────────────────────────────────────────────────────────
     hf_token = cfg.get("hf_token") or os.getenv("HF_TOKEN")
     if hf_token:
         login(token=hf_token)
@@ -210,7 +171,6 @@ def train(cfg: dict, smoke_test: bool = False):
             "HF_TOKEN not found. Set it via env var or add hf_token to config."
         )
 
-    # ── Data ──────────────────────────────────────────────────────────────────
     train_dataset, val_dataset = load_dataset(
         dataset_name=cfg["dataset_name"],
         use_enhanced=cfg.get("use_enhanced_answer", True),
@@ -218,13 +178,9 @@ def train(cfg: dict, smoke_test: bool = False):
         max_val_samples=20 if smoke_test else None,
     )
 
-    # ── Quantization config ────────────────────────────────────────────────────
-    # 4-bit NF4 is optional. Disable when bitsandbytes is incompatible with the
-    # CUDA version (e.g. CUDA 13.0 on RTX 5090) or when VRAM is sufficient.
-    compute_dtype = torch.bfloat16  # RTX 5090 supports bf16 natively (torch >= 2.8)
+    compute_dtype = torch.bfloat16
 
     if load_in_4bit:
-        # Suppress bitsandbytes stderr noise during import (harmless CUDA lib warning)
         with contextlib.redirect_stderr(_io.StringIO()):
             from transformers import BitsAndBytesConfig
         bnb_config = BitsAndBytesConfig(
@@ -260,9 +216,8 @@ def train(cfg: dict, smoke_test: bool = False):
     processor = AutoProcessor.from_pretrained(model_name)
     _log_gpu()
 
-    # ── DoRA / LoRA adapters ───────────────────────────────────────────────────
-    # modules_to_save intentionally omitted: adding lm_head + embed_tokens pushes
-    # trainable params to ~1.38B and causes OOM on the optimizer state allocation.
+    # modules_to_save intentionally omitted — adding lm_head + embed_tokens
+    # pushes trainable params to ~1.38B and OOMs on the optimizer state
     adapter_mode = "DoRA" if use_dora else "LoRA"
     print(f"[model] Attaching {adapter_mode} adapters "
           f"(r={cfg['lora_r']}, alpha={cfg['lora_alpha']}, "
@@ -281,10 +236,8 @@ def train(cfg: dict, smoke_test: bool = False):
     model.print_trainable_parameters()
     _log_gpu()
 
-    # ── Collate function ───────────────────────────────────────────────────────
     collate_fn = get_collate_fn(processor, cfg["max_seq_length"])
 
-    # ── W&B init ───────────────────────────────────────────────────────────────
     run_name = (
         f"medgemma_{'dora' if use_dora else 'lora'}"
         f"_r{cfg['lora_r']}"
@@ -306,8 +259,7 @@ def train(cfg: dict, smoke_test: bool = False):
         dir=os.environ.get("WANDB_DIR", "wandb"),
     )
 
-    # ── Training arguments ─────────────────────────────────────────────────────
-    # warmup_ratio is deprecated in transformers v5.2 — compute warmup_steps instead.
+    # warmup_ratio deprecated in transformers v5.2 — compute steps directly
     if smoke_test:
         warmup_steps = 1
     else:
@@ -354,7 +306,6 @@ def train(cfg: dict, smoke_test: bool = False):
         data_collator=collate_fn,
     )
 
-    # ── Train ──────────────────────────────────────────────────────────────────
     try:
         torch.cuda.empty_cache()
         print("[train] Starting training...\n")
@@ -365,9 +316,6 @@ def train(cfg: dict, smoke_test: bool = False):
         trainer.save_model(out_final)
         processor.save_pretrained(out_final)
 
-        # ── W&B model artifact (versioned) ────────────────────────────────────
-        # Each completed run logs the adapter weights as a versioned artifact.
-        # In the W&B UI: Artifacts → model → v1 / v2 / v3 …
         if not smoke_test:
             artifact_name = (
                 cfg.get("hub_model_id", "medgemma-path-vqa")
@@ -421,8 +369,6 @@ def train(cfg: dict, smoke_test: bool = False):
 
     return trainer
 
-
-# ── Entry point ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Fine-tune Med-GaMMa on PathVQA Enhanced")
