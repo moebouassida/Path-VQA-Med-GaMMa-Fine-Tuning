@@ -10,6 +10,14 @@ Answers yes/no and open-ended clinical questions from H&E and other pathology im
 
 ---
 
+## Demo
+
+<!-- demo.gif: screen recording of the Gradio app answering a pathology question -->
+<!-- To add: record a short clip, export as GIF, commit to assets/, then replace the line below -->
+![Demo](assets/demo.gif)
+
+---
+
 ## Results
 
 1 epoch of DoRA fine-tuning on 32K clinical QA pairs delivers a substantial improvement over the base model on the PathVQA benchmark:
