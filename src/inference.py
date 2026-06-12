@@ -24,40 +24,25 @@ SYSTEM_PROMPT = (
 )
 
 
-def _resolve_processor_path(model_path: str) -> str:
-    """For PEFT adapters, the processor lives in the base model, not the adapter repo."""
-    import json
-    token = os.getenv("HF_TOKEN")
-    try:
-        if os.path.isdir(model_path):
-            cfg_file = os.path.join(model_path, "adapter_config.json")
-            if os.path.exists(cfg_file):
-                with open(cfg_file) as f:
-                    return json.load(f).get("base_model_name_or_path", model_path)
-        else:
-            from huggingface_hub import hf_hub_download
-            cfg_file = hf_hub_download(model_path, "adapter_config.json", token=token)
-            with open(cfg_file) as f:
-                return json.load(f).get("base_model_name_or_path", model_path)
-    except Exception:
-        pass
-    return model_path
-
-
 def load_model(model_path: str, load_in_4bit: bool = True):
     """
-    Load a fine-tuned Med-GaMMa (LoRA/DoRA adapter merged or standalone).
-    Accepts both local directory paths and HuggingFace Hub model IDs.
+    Load a fine-tuned Med-GaMMa DoRA adapter.
+    Accepts local directory paths or HuggingFace Hub model IDs.
+    Uses PeftModel.from_pretrained so DoRA magnitude vectors load correctly.
     """
     from transformers import AutoProcessor, AutoModelForImageTextToText, BitsAndBytesConfig
+    from peft import PeftModel, PeftConfig
 
     token = os.getenv("HF_TOKEN")
     print(f"[inference] Loading model: {model_path}")
 
-    processor_path = _resolve_processor_path(model_path)
-    if processor_path != model_path:
-        print(f"[inference] Loading processor from base model: {processor_path}")
-    processor = AutoProcessor.from_pretrained(processor_path, token=token)
+    # Read adapter config to get the base model ID
+    peft_config = PeftConfig.from_pretrained(model_path, token=token)
+    base_id = peft_config.base_model_name_or_path
+    print(f"[inference] Base model : {base_id}")
+    print(f"[inference] Adapter    : {model_path}")
+
+    processor = AutoProcessor.from_pretrained(base_id, token=token)
 
     if load_in_4bit:
         bnb_config = BitsAndBytesConfig(
@@ -66,20 +51,21 @@ def load_model(model_path: str, load_in_4bit: bool = True):
             bnb_4bit_compute_dtype=torch.bfloat16,
             bnb_4bit_use_double_quant=True,
         )
-        model = AutoModelForImageTextToText.from_pretrained(
-            model_path,
+        base = AutoModelForImageTextToText.from_pretrained(
+            base_id,
             quantization_config=bnb_config,
             device_map="auto",
             token=token,
         )
     else:
-        model = AutoModelForImageTextToText.from_pretrained(
-            model_path,
+        base = AutoModelForImageTextToText.from_pretrained(
+            base_id,
             dtype=torch.bfloat16,
             device_map="auto",
             token=token,
         )
 
+    model = PeftModel.from_pretrained(base, model_path, token=token)
     model.eval()
     print(f"[inference] Model on {next(model.parameters()).device}")
     return model, processor
