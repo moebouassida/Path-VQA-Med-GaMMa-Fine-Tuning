@@ -24,6 +24,26 @@ SYSTEM_PROMPT = (
 )
 
 
+def _resolve_processor_path(model_path: str) -> str:
+    """For PEFT adapters, the processor lives in the base model, not the adapter repo."""
+    import json
+    token = os.getenv("HF_TOKEN")
+    try:
+        if os.path.isdir(model_path):
+            cfg_file = os.path.join(model_path, "adapter_config.json")
+            if os.path.exists(cfg_file):
+                with open(cfg_file) as f:
+                    return json.load(f).get("base_model_name_or_path", model_path)
+        else:
+            from huggingface_hub import hf_hub_download
+            cfg_file = hf_hub_download(model_path, "adapter_config.json", token=token)
+            with open(cfg_file) as f:
+                return json.load(f).get("base_model_name_or_path", model_path)
+    except Exception:
+        pass
+    return model_path
+
+
 def load_model(model_path: str, load_in_4bit: bool = True):
     """
     Load a fine-tuned Med-GaMMa (LoRA/DoRA adapter merged or standalone).
@@ -31,9 +51,13 @@ def load_model(model_path: str, load_in_4bit: bool = True):
     """
     from transformers import AutoProcessor, AutoModelForImageTextToText, BitsAndBytesConfig
 
+    token = os.getenv("HF_TOKEN")
     print(f"[inference] Loading model: {model_path}")
 
-    processor = AutoProcessor.from_pretrained(model_path)
+    processor_path = _resolve_processor_path(model_path)
+    if processor_path != model_path:
+        print(f"[inference] Loading processor from base model: {processor_path}")
+    processor = AutoProcessor.from_pretrained(processor_path, token=token)
 
     if load_in_4bit:
         bnb_config = BitsAndBytesConfig(
@@ -46,12 +70,14 @@ def load_model(model_path: str, load_in_4bit: bool = True):
             model_path,
             quantization_config=bnb_config,
             device_map="auto",
+            token=token,
         )
     else:
         model = AutoModelForImageTextToText.from_pretrained(
             model_path,
             dtype=torch.bfloat16,
             device_map="auto",
+            token=token,
         )
 
     model.eval()
