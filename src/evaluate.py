@@ -23,7 +23,8 @@ from inference import load_model, predict
 
 
 def evaluate(
-    cfg: dict, model_path: str, max_samples: int = None, output_json: str = None
+    cfg: dict, model_path: str, max_samples: int = None, output_json: str = None,
+    load_in_4bit: bool = True,
 ) -> bool:
     from datasets import load_dataset as hf_load
 
@@ -35,7 +36,7 @@ def evaluate(
     print(f"{'='*62}\n")
 
     # Load model
-    model, processor = load_model(model_path)
+    model, processor = load_model(model_path, load_in_4bit=load_in_4bit)
 
     # Load test split directly
     print("[eval] Loading test split...")
@@ -121,8 +122,9 @@ if __name__ == "__main__":
     parser.add_argument("--config", default="config/config.yaml")
     parser.add_argument("--max-samples", type=int, default=None)
     parser.add_argument("--output-json", default="metrics/eval_results.json")
+    parser.add_argument("--no-4bit", action="store_true", help="Load in bf16 instead of 4-bit")
     args = parser.parse_args()
 
     cfg = yaml.safe_load(open(args.config))
-    passed = evaluate(cfg, args.model, args.max_samples, args.output_json)
+    passed = evaluate(cfg, args.model, args.max_samples, args.output_json, load_in_4bit=not args.no_4bit)
     sys.exit(0 if passed else 1)
