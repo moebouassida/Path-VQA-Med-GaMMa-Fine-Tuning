@@ -13,6 +13,15 @@ from pathlib import Path
 import gradio as gr
 from PIL import Image
 
+# ── ZeroGPU: no-op fallback when running outside HF Spaces ────────────────────
+try:
+    import spaces
+except ImportError:
+    class spaces:  # noqa: N801
+        @staticmethod
+        def GPU(duration=120):
+            return lambda f: f
+
 # ── Path setup ─────────────────────────────────────────────────────────────────
 _ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _ROOT)
@@ -21,24 +30,20 @@ sys.path.insert(0, _ROOT)
 HF_MODEL_ID = os.getenv("MODEL_ID", "moebouassida/medgemma-4b-path-vqa")
 MODEL_PATH = Path(os.getenv("MODEL_PATH", "outputs/final"))
 
+# Model loaded lazily inside @spaces.GPU so GPU is available when loading
 _model = None
 _processor = None
-_load_error: str = ""
 
 
-def _try_load():
-    global _model, _processor, _load_error
+def _load_model():
+    global _model, _processor
+    if _model is not None:
+        return
     from src.inference import load_model
-    try:
-        src = str(MODEL_PATH) if MODEL_PATH.exists() else HF_MODEL_ID
-        _model, _processor = load_model(src, load_in_4bit=True)
-        print(f"[demo] Model loaded from: {src}")
-    except Exception as e:
-        _load_error = str(e)
-        print(f"[demo] Could not load model: {e}")
-
-
-_try_load()
+    src = str(MODEL_PATH) if MODEL_PATH.exists() else HF_MODEL_ID
+    # bf16 on A100 is faster than 4-bit (no dequant overhead)
+    _model, _processor = load_model(src, load_in_4bit=False)
+    print(f"[demo] Model loaded from: {src}")
 
 # ── Pre-load dataset examples ─────────────────────────────────────────────────
 _examples: list = []
@@ -65,20 +70,19 @@ QUICK_QUESTIONS = [
 
 # ── Inference function ─────────────────────────────────────────────────────────
 
+@spaces.GPU(duration=120)
 def run_vqa(image: Image.Image, question: str, max_tokens: int = 256) -> tuple[str, str]:
     """
     Returns (answer_text, answer_type_html).
-    answer_type_html is a small HTML badge shown above the answer.
+    Model is loaded lazily on first call so GPU is available during load.
     """
     if image is None:
         return "Please upload a pathology image.", ""
     if not question or not question.strip():
         return "Please enter a clinical question.", ""
-    if _model is None:
-        msg = _load_error or "Model not loaded — check space logs."
-        return f"Model unavailable: {msg}", ""
 
     try:
+        _load_model()
         from src.inference import predict
         t0 = time.time()
         answer = predict(_model, _processor, image, question.strip(), max_tokens)
@@ -102,7 +106,8 @@ def run_vqa(image: Image.Image, question: str, max_tokens: int = 256) -> tuple[s
         return answer, type_html
 
     except Exception as e:
-        return f"Inference error: {e}", ""
+        print(f"[demo] Inference error: {e}")
+        return f"Error: {e}", ""
 
 
 # ── CSS ────────────────────────────────────────────────────────────────────────
