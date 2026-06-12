@@ -448,15 +448,6 @@ with gr.Blocks(
                     label="Max tokens",
                 )
 
-            gr.HTML('<div class="section-title" style="margin-top:14px">Quick questions</div>')
-            for row_qs in [QUICK_QUESTIONS[:4], QUICK_QUESTIONS[4:]]:
-                with gr.Row():
-                    for q in row_qs:
-                        gr.Button(q, size="sm", scale=0, elem_classes=["chip-btn"]).click(
-                            fn=lambda x=q: x,
-                            outputs=question_in,
-                        )
-
         # ── Right: Output ─────────────────────────────────────────────────────
         with gr.Column(scale=6, min_width=380):
             answer_type_html = gr.HTML(
@@ -468,6 +459,15 @@ with gr.Blocks(
                 interactive=False,
                 elem_classes=["answer-box"],
                 placeholder="Answer will appear here after you click Analyze…",
+            )
+
+    # ── Quick questions (full width) ──────────────────────────────────────────
+    gr.HTML('<div class="section-title" style="margin:16px 0 8px 0">Quick questions</div>')
+    with gr.Row():
+        for q in QUICK_QUESTIONS:
+            gr.Button(q, size="sm", scale=1, elem_classes=["chip-btn"]).click(
+                fn=lambda x=q: x,
+                outputs=question_in,
             )
 
     # ── Examples ──────────────────────────────────────────────────────────────
