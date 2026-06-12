@@ -1,16 +1,7 @@
 name: Deploy to HuggingFace Spaces
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "hf_spaces_app.py"
-      - "src/inference.py"
-      - "src/data_processing.py"
-      - "src/metrics.py"
-      - "config/config.yaml"
-      - "requirements.txt"
-      - ".github/workflows/deploy_spaces.yml"
+  workflow_dispatch:  # manual trigger only — run from GitHub Actions tab
 
 jobs:
   deploy:
@@ -48,17 +39,7 @@ jobs:
           print(f"Space: https://huggingface.co/spaces/{repo_id}")
 
           # Space README — tells HF Spaces which file is the entry point
-          space_readme = """---
-title: PathVQA Med-GaMMa
-emoji: 🔬
-colorFrom: blue
-colorTo: indigo
-sdk: gradio
-app_file: hf_spaces_app.py
-pinned: false
-license: apache-2.0
----
-"""
+          space_readme = "---\ntitle: PathVQA Med-GaMMa\nemoji: 🔬\ncolorFrom: blue\ncolorTo: indigo\nsdk: gradio\napp_file: hf_spaces_app.py\npinned: false\nlicense: apache-2.0\n---\n"
           api.upload_file(
               path_or_fileobj=space_readme.encode(),
               path_in_repo="README.md",
