@@ -191,15 +191,7 @@ _FOOTER = """
 """
 
 # ── Gradio UI ──────────────────────────────────────────────────────────────────
-with gr.Blocks(
-    title="PathVQA · Med-GaMMa",
-    theme=gr.themes.Soft(
-        primary_hue=gr.themes.colors.blue,
-        secondary_hue=gr.themes.colors.slate,
-        font=gr.themes.GoogleFont("Inter"),
-    ),
-    css=_CSS,
-) as demo:
+with gr.Blocks(title="PathVQA · Med-GaMMa") as demo:
 
     gr.HTML(_HERO)
 
@@ -233,13 +225,13 @@ with gr.Blocks(
                 )
 
             gr.Markdown("**Quick questions:**")
-            with gr.Row(wrap=True):
+            with gr.Row():
                 for q in QUICK_QUESTIONS[:4]:
                     gr.Button(q, size="sm", scale=0).click(
                         fn=lambda x=q: x,
                         outputs=question_in,
                     )
-            with gr.Row(wrap=True):
+            with gr.Row():
                 for q in QUICK_QUESTIONS[4:]:
                     gr.Button(q, size="sm", scale=0).click(
                         fn=lambda x=q: x,
@@ -288,4 +280,13 @@ with gr.Blocks(
     )
 
 if __name__ == "__main__":
-    demo.launch(server_name="0.0.0.0", share=False)
+    demo.launch(
+        server_name="0.0.0.0",
+        share=False,
+        theme=gr.themes.Soft(
+            primary_hue=gr.themes.colors.blue,
+            secondary_hue=gr.themes.colors.slate,
+            font=gr.themes.GoogleFont("Inter"),
+        ),
+        css=_CSS,
+    )
