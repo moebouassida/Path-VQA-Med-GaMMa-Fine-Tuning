@@ -107,87 +107,250 @@ def run_vqa(image: Image.Image, question: str, max_tokens: int = 256) -> tuple[s
 
 # ── CSS ────────────────────────────────────────────────────────────────────────
 _CSS = """
-/* Hide Gradio footer */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
 footer { display: none !important; }
 
-/* Answer text box */
-.answer-box textarea {
-    font-size: 1.05em;
-    line-height: 1.7;
-    background: #f0f9ff !important;
-    border: 1px solid #bae6fd !important;
-    color: #0f172a !important;
+body, .gradio-container { font-family: 'Inter', sans-serif !important; }
+
+/* Hero */
+.vqa-hero {
+    background: linear-gradient(120deg, #0f172a 0%, #1e3a8a 50%, #1d4ed8 100%);
+    border-radius: 16px;
+    padding: 32px 40px;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+.vqa-hero-badges {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+}
+.vqa-badge {
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.2);
+    color: #e2e8f0;
+    padding: 4px 14px;
+    border-radius: 20px;
+    font-size: 0.78em;
+    font-weight: 500;
+    letter-spacing: 0.3px;
 }
 
-/* Hero banner */
-.hero-banner {
-    background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 60%, #1d4ed8 100%);
+/* Panel cards */
+.input-panel, .output-panel {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
     border-radius: 14px;
-    padding: 28px 36px;
-    margin-bottom: 18px;
+    padding: 20px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
 }
 
-/* Stats cards */
-.stat-card {
+/* Answer textbox */
+.answer-box textarea {
+    font-size: 1.05em !important;
+    line-height: 1.8 !important;
+    color: #0f172a !important;
+    background: #f8fafc !important;
+    border: none !important;
+    border-radius: 10px !important;
+    padding: 14px 16px !important;
+    min-height: 180px !important;
+}
+
+/* Quick question chips */
+.chip-btn button {
+    border-radius: 20px !important;
+    font-size: 0.78em !important;
+    padding: 4px 12px !important;
+    background: #f1f5f9 !important;
+    border: 1px solid #e2e8f0 !important;
+    color: #475569 !important;
+    font-weight: 500 !important;
+}
+.chip-btn button:hover {
+    background: #dbeafe !important;
+    border-color: #93c5fd !important;
+    color: #1d4ed8 !important;
+}
+
+/* Answer type badge */
+.answer-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+    min-height: 28px;
+}
+
+/* Model card section */
+.model-card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 14px;
+    margin: 8px 0;
+}
+.mc-stat {
     background: #f8fafc;
     border: 1px solid #e2e8f0;
-    border-radius: 10px;
-    padding: 14px 18px;
+    border-radius: 12px;
+    padding: 16px;
     text-align: center;
+}
+.mc-stat-value {
+    font-size: 1.5em;
+    font-weight: 700;
+    color: #1d4ed8;
+    line-height: 1.2;
+}
+.mc-stat-label {
+    font-size: 0.75em;
+    color: #64748b;
+    margin-top: 4px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.mc-detail-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 16px;
+}
+.mc-detail-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: #f8fafc;
+    border-radius: 8px;
+    font-size: 0.85em;
+}
+.mc-detail-key { color: #64748b; font-weight: 500; }
+.mc-detail-val { color: #0f172a; font-weight: 600; }
+
+/* Section divider */
+.section-title {
+    font-size: 0.7em;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #94a3b8;
+    margin: 20px 0 10px 0;
 }
 """
 
-# ── Hero HTML ──────────────────────────────────────────────────────────────────
+# ── Hero ───────────────────────────────────────────────────────────────────────
 _HERO = """
-<div class="hero-banner">
-  <h1 style="color:white;margin:0 0 6px 0;font-size:1.9em;font-weight:700">
-    🔬 PathVQA · Med-GaMMa
-  </h1>
-  <p style="color:#93c5fd;margin:0;font-size:1.05em">
-    Visual Question Answering on Pathology Images —
-    <strong style="color:#dbeafe">Med-GaMMa 4B</strong>
-    fine-tuned on <a href="https://huggingface.co/datasets/moebouassida/path-vqa-enhanced"
-    style="color:#60a5fa">PathVQA Enhanced</a> (~32K QA pairs)
-  </p>
+<div class="vqa-hero">
+  <div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+      <span style="font-size:1.8em">🔬</span>
+      <h1 style="color:white;margin:0;font-size:1.75em;font-weight:700;letter-spacing:-0.5px">
+        PathVQA · Med-GaMMa
+      </h1>
+    </div>
+    <p style="color:#93c5fd;margin:0 0 2px 0;font-size:0.97em;max-width:600px">
+      Pathology Visual Question Answering — <strong style="color:#dbeafe">Med-GaMMa 4B</strong>
+      fine-tuned with DoRA on
+      <a href="https://huggingface.co/datasets/moebouassida/path-vqa-enhanced"
+         style="color:#60a5fa;text-decoration:none;font-weight:500">PathVQA Enhanced</a>
+      (~32K clinical QA pairs)
+    </p>
+    <div class="vqa-hero-badges">
+      <span class="vqa-badge">Med-GaMMa 4B</span>
+      <span class="vqa-badge">DoRA + RSLoRA</span>
+      <span class="vqa-badge">H100 SXM · 80 GB</span>
+      <span class="vqa-badge">32K Training Pairs</span>
+      <span class="vqa-badge">Research Use Only</span>
+    </div>
+  </div>
+  <div style="text-align:right;color:#93c5fd;font-size:0.82em;white-space:nowrap">
+    <div><a href="https://huggingface.co/moebouassida/medgemma-4b-path-vqa"
+             style="color:#60a5fa;text-decoration:none">🤗 Model</a></div>
+    <div style="margin-top:4px"><a href="https://huggingface.co/datasets/moebouassida/path-vqa-enhanced"
+             style="color:#60a5fa;text-decoration:none">🤗 Dataset</a></div>
+    <div style="margin-top:4px"><a href="https://github.com/moebouassida"
+             style="color:#60a5fa;text-decoration:none">⭐ GitHub</a></div>
+  </div>
 </div>
 """
 
-# ── Stats sidebar ──────────────────────────────────────────────────────────────
-_STATS = """
-### Model Card
+# ── Model card (bottom) ────────────────────────────────────────────────────────
+_MODEL_CARD = """
+<div style="margin-top:8px">
+  <div class="section-title">Model Card</div>
+  <div class="model-card-grid">
+    <div class="mc-stat">
+      <div class="mc-stat-value">~76%</div>
+      <div class="mc-stat-label">Yes/No Accuracy</div>
+    </div>
+    <div class="mc-stat">
+      <div class="mc-stat-value">0.28</div>
+      <div class="mc-stat-label">BLEU-4</div>
+    </div>
+    <div class="mc-stat">
+      <div class="mc-stat-value">0.48</div>
+      <div class="mc-stat-label">Token F1</div>
+    </div>
+    <div class="mc-stat">
+      <div class="mc-stat-value">32K</div>
+      <div class="mc-stat-label">Training Pairs</div>
+    </div>
+    <div class="mc-stat">
+      <div class="mc-stat-value">4B</div>
+      <div class="mc-stat-label">Parameters</div>
+    </div>
+    <div class="mc-stat">
+      <div class="mc-stat-value">0.9%</div>
+      <div class="mc-stat-label">Trainable (DoRA)</div>
+    </div>
+  </div>
 
-| | |
-|:--|:--|
-| **Base model** | Med-GaMMa 4B (`google/medgemma-4b-it`) |
-| **Adapter** | DoRA + RSLoRA (r=16) |
-| **Attention** | Flash Attention 2 (optional) |
-| **Quantization** | bfloat16 (4-bit NF4 optional) |
-| **Dataset** | PathVQA Enhanced (~32K pairs) |
-| **GPU** | NVIDIA RTX 5090 · 32 GB |
+  <div class="mc-detail-grid">
+    <div class="mc-detail-row">
+      <span class="mc-detail-key">Base model</span>
+      <span class="mc-detail-val">google/medgemma-4b-it</span>
+    </div>
+    <div class="mc-detail-row">
+      <span class="mc-detail-key">Adapter</span>
+      <span class="mc-detail-val">DoRA + RSLoRA r=16</span>
+    </div>
+    <div class="mc-detail-row">
+      <span class="mc-detail-key">Precision</span>
+      <span class="mc-detail-val">bfloat16</span>
+    </div>
+    <div class="mc-detail-row">
+      <span class="mc-detail-key">Training GPU</span>
+      <span class="mc-detail-val">H100 SXM 80 GB</span>
+    </div>
+    <div class="mc-detail-row">
+      <span class="mc-detail-key">Vision encoder</span>
+      <span class="mc-detail-val">SigLIP (400M)</span>
+    </div>
+    <div class="mc-detail-row">
+      <span class="mc-detail-key">Optimizer</span>
+      <span class="mc-detail-val">AdamW fused + cosine LR</span>
+    </div>
+  </div>
 
-### Benchmark
+  <div style="margin-top:16px;padding:12px 16px;background:#fefce8;border:1px solid #fde68a;
+              border-radius:10px;font-size:0.83em;color:#92400e">
+    ⚠️ <strong>Research use only.</strong>
+    This is not a medical device. All outputs must be reviewed by qualified pathologists
+    before any clinical use.
+  </div>
 
-| Metric | Score |
-|:--|--:|
-| Yes/No Accuracy | **~76%** |
-| Open-ended BLEU-4 | **~0.28** |
-| Open-ended Token F1 | **~0.48** |
-
-<small>Evaluated on PathVQA test split (4,998 samples).</small>
-"""
-
-_DISCLAIMER = """
-> ⚠️ **Research use only.**
-> This tool is not a medical device. It is intended for research and educational purposes only.
-> Always consult a qualified pathologist for diagnostic decisions.
-"""
-
-_FOOTER = """
-<div style="text-align:center;color:#64748b;font-size:0.88em;margin-top:12px">
-  <a href="https://huggingface.co/moebouassida/medgemma-4b-path-vqa" style="color:#2563eb">Model</a> ·
-  <a href="https://huggingface.co/datasets/moebouassida/path-vqa-enhanced" style="color:#2563eb">Dataset</a> ·
-  <a href="https://github.com/moebouassida" style="color:#2563eb">GitHub</a> ·
-  Built by <strong>Moez Bouassida</strong>
+  <div style="text-align:center;margin-top:16px;color:#94a3b8;font-size:0.82em">
+    Built by <strong style="color:#475569">Moez Bouassida</strong> ·
+    <a href="https://huggingface.co/moebouassida/medgemma-4b-path-vqa" style="color:#2563eb;text-decoration:none">Model</a> ·
+    <a href="https://huggingface.co/datasets/moebouassida/path-vqa-enhanced" style="color:#2563eb;text-decoration:none">Dataset</a> ·
+    <a href="https://github.com/moebouassida" style="color:#2563eb;text-decoration:none">GitHub</a>
+  </div>
 </div>
 """
 
@@ -206,70 +369,61 @@ with gr.Blocks(
 
     with gr.Row(equal_height=False):
 
-        # ── Left: Input panel ─────────────────────────────────────────────────
-        with gr.Column(scale=5, min_width=340):
+        # ── Left: Input ───────────────────────────────────────────────────────
+        with gr.Column(scale=4, min_width=320):
             image_in = gr.Image(
                 type="pil",
-                label="Pathology Image (H&E stain, IHC, cytology…)",
-                height=300,
+                label="Pathology Image",
+                height=280,
             )
-
             question_in = gr.Textbox(
                 label="Clinical Question",
-                placeholder=(
-                    "e.g.  What type of tissue is shown?\n"
-                    "      Is there evidence of malignancy?"
-                ),
+                placeholder="e.g. Is there evidence of malignancy?",
                 lines=2,
             )
-
             with gr.Row():
-                clear_btn = gr.Button("🗑 Clear", variant="secondary", scale=1)
+                clear_btn  = gr.Button("Clear", variant="secondary", scale=1)
                 submit_btn = gr.Button("Analyze ▶", variant="primary", scale=3)
 
-            with gr.Accordion("⚙️ Generation settings", open=False):
+            with gr.Accordion("Generation settings", open=False):
                 max_tokens_slider = gr.Slider(
                     minimum=64, maximum=512, value=256, step=32,
-                    label="Max response length (tokens)",
+                    label="Max tokens",
                 )
 
-            gr.Markdown("**Quick questions:**")
-            with gr.Row():
-                for q in QUICK_QUESTIONS[:4]:
-                    gr.Button(q, size="sm", scale=0).click(
-                        fn=lambda x=q: x,
-                        outputs=question_in,
-                    )
-            with gr.Row():
-                for q in QUICK_QUESTIONS[4:]:
-                    gr.Button(q, size="sm", scale=0).click(
-                        fn=lambda x=q: x,
-                        outputs=question_in,
-                    )
+            gr.HTML('<div class="section-title" style="margin-top:14px">Quick questions</div>')
+            for row_qs in [QUICK_QUESTIONS[:4], QUICK_QUESTIONS[4:]]:
+                with gr.Row():
+                    for q in row_qs:
+                        gr.Button(q, size="sm", scale=0, elem_classes=["chip-btn"]).click(
+                            fn=lambda x=q: x,
+                            outputs=question_in,
+                        )
 
-        # ── Right: Output panel ───────────────────────────────────────────────
-        with gr.Column(scale=5, min_width=340):
-            answer_type_html = gr.HTML("")
+        # ── Right: Output ─────────────────────────────────────────────────────
+        with gr.Column(scale=6, min_width=380):
+            answer_type_html = gr.HTML(
+                '<div class="answer-meta"></div>'
+            )
             answer_out = gr.Textbox(
                 label="Pathologist AI Answer",
-                lines=11,
+                lines=14,
                 interactive=False,
                 elem_classes=["answer-box"],
+                placeholder="Answer will appear here after you click Analyze…",
             )
-            gr.Markdown(_STATS)
 
-    # ── Dataset examples ──────────────────────────────────────────────────────
+    # ── Examples ──────────────────────────────────────────────────────────────
     if _examples:
+        gr.HTML('<div class="section-title" style="margin:18px 0 6px 0">Examples from PathVQA test split</div>')
         gr.Examples(
             examples=_examples,
             inputs=[image_in, question_in],
-            label="📂 Examples from PathVQA test split",
             examples_per_page=4,
         )
 
-    # ── Footer ────────────────────────────────────────────────────────────────
-    gr.Markdown(_DISCLAIMER)
-    gr.HTML(_FOOTER)
+    # ── Model card (bottom) ───────────────────────────────────────────────────
+    gr.HTML(_MODEL_CARD)
 
     # ── Event wiring ──────────────────────────────────────────────────────────
     submit_btn.click(
@@ -283,7 +437,7 @@ with gr.Blocks(
         outputs=[answer_out, answer_type_html],
     )
     clear_btn.click(
-        fn=lambda: (None, "", "", ""),
+        fn=lambda: (None, "", "", '<div class="answer-meta"></div>'),
         outputs=[image_in, question_in, answer_out, answer_type_html],
     )
 
