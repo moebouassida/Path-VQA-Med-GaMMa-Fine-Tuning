@@ -279,6 +279,7 @@ with gr.Blocks(title="PathVQA · Med-GaMMa") as demo:
     )
 
 if __name__ == "__main__":
+    demo.queue()
     demo.launch(
         server_name="0.0.0.0",
         share=False,
