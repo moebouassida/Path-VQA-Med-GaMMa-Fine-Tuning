@@ -10,6 +10,13 @@
 
 set -euo pipefail
 
+# Load .env if present (same as train_runpod.sh)
+if [ -f .env ]; then
+    set -o allexport
+    source .env
+    set +o allexport
+fi
+
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║          Path-VQA Med-GaMMa — RunPod Setup                  ║"
