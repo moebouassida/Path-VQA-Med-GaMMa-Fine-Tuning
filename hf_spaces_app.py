@@ -114,8 +114,9 @@ footer { display: none !important; }
 .answer-box textarea {
     font-size: 1.05em;
     line-height: 1.7;
-    background: #f0f9ff;
-    border: 1px solid #bae6fd;
+    background: #f0f9ff !important;
+    border: 1px solid #bae6fd !important;
+    color: #0f172a !important;
 }
 
 /* Hero banner */
@@ -191,7 +192,15 @@ _FOOTER = """
 """
 
 # ── Gradio UI ──────────────────────────────────────────────────────────────────
-with gr.Blocks(title="PathVQA · Med-GaMMa") as demo:
+with gr.Blocks(
+    title="PathVQA · Med-GaMMa",
+    theme=gr.themes.Soft(
+        primary_hue=gr.themes.colors.blue,
+        secondary_hue=gr.themes.colors.slate,
+        font=gr.themes.GoogleFont("Inter"),
+    ),
+    css=_CSS,
+) as demo:
 
     gr.HTML(_HERO)
 
@@ -280,13 +289,4 @@ with gr.Blocks(title="PathVQA · Med-GaMMa") as demo:
 
 if __name__ == "__main__":
     demo.queue()
-    demo.launch(
-        server_name="0.0.0.0",
-        share=False,
-        theme=gr.themes.Soft(
-            primary_hue=gr.themes.colors.blue,
-            secondary_hue=gr.themes.colors.slate,
-            font=gr.themes.GoogleFont("Inter"),
-        ),
-        css=_CSS,
-    )
+    demo.launch(server_name="0.0.0.0", share=False)
