@@ -253,7 +253,7 @@ _HERO = """
              style="color:#60a5fa;text-decoration:none">🤗 Model</a></div>
     <div style="margin-top:4px"><a href="https://huggingface.co/datasets/moebouassida/path-vqa-enhanced"
              style="color:#60a5fa;text-decoration:none">🤗 Dataset</a></div>
-    <div style="margin-top:4px"><a href="https://github.com/moebouassida"
+    <div style="margin-top:4px"><a href="https://github.com/moebouassida/Path-VQA-Med-GaMMa-Fine-Tuning"
              style="color:#60a5fa;text-decoration:none">⭐ GitHub</a></div>
   </div>
 </div>
