@@ -3,6 +3,7 @@ import sys
 import time
 from pathlib import Path
 
+import numpy as np
 import gradio as gr
 from PIL import Image
 
@@ -57,21 +58,54 @@ QUICK_QUESTIONS = [
 ]
 
 
+def _parse_answer(text: str) -> tuple[str, str]:
+    """Split 'answer. Explanation: ...' into (answer, explanation)."""
+    if "Explanation:" in text:
+        short, expl = text.split("Explanation:", 1)
+        return short.strip().rstrip(".,"), expl.strip()
+    return text.strip(), ""
+
+
+def _make_heatmap(image: Image.Image, saliency: np.ndarray) -> Image.Image:
+    """Blend gradient saliency onto the original image (warm colormap)."""
+    w, h = image.size
+    sal = np.array(
+        Image.fromarray((saliency * 255).astype(np.uint8), mode="L").resize(
+            (w, h), Image.BILINEAR
+        ),
+        dtype=np.float32,
+    ) / 255.0
+
+    # black → red → yellow → white (hot colormap)
+    r = np.clip(sal * 3,     0, 1)
+    g = np.clip(sal * 3 - 1, 0, 1)
+    b = np.clip(sal * 3 - 2, 0, 1)
+    heatmap = (np.stack([r, g, b], axis=-1) * 255).astype(np.uint8)
+
+    original = np.array(image.convert("RGB"), dtype=np.float32)
+    alpha    = sal[:, :, np.newaxis]
+    blended  = ((1 - 0.7 * alpha) * original + 0.7 * alpha * heatmap).astype(np.uint8)
+    return Image.fromarray(blended)
+
+
 @spaces.GPU(duration=120)
-def run_vqa(image: Image.Image, question: str, max_tokens: int = 256) -> tuple[str, str]:
+def run_vqa(image: Image.Image, question: str, max_tokens: int = 256):
     if image is None:
-        return "Please upload a pathology image.", ""
+        return "Please upload a pathology image.", "", "", None
     if not question or not question.strip():
-        return "Please enter a clinical question.", ""
+        return "Please enter a clinical question.", "", "", None
 
     try:
         _load_model()
-        from src.inference import predict
-        t0 = time.time()
+        from src.inference import predict, get_saliency_map
+
+        t0     = time.time()
         answer = predict(_model, _processor, image, question.strip(), max_tokens)
         elapsed = time.time() - t0
 
-        norm = answer.strip().lower()
+        short_ans, explanation = _parse_answer(answer)
+
+        norm = short_ans.strip().lower()
         if norm in ("yes", "no") or norm.startswith(("yes,", "no,", "yes.", "no.")):
             badge_color = "#16a34a"
             badge_label = "Yes / No"
@@ -86,11 +120,19 @@ def run_vqa(image: Image.Image, question: str, max_tokens: int = 256) -> tuple[s
             f'&nbsp;&nbsp;<span style="color:#6b7280;font-size:0.8em">⏱ {elapsed:.1f}s</span>'
             f'</div>'
         )
-        return answer, type_html
+
+        heatmap_img = None
+        try:
+            saliency    = get_saliency_map(_model, _processor, image, question.strip())
+            heatmap_img = _make_heatmap(image, saliency)
+        except Exception as e:
+            print(f"[demo] Saliency failed: {e}")
+
+        return short_ans, explanation, type_html, heatmap_img
 
     except Exception as e:
         print(f"[demo] Inference error: {e}")
-        return f"Error: {e}", ""
+        return f"Error: {e}", "", "", None
 
 
 _CSS = """
@@ -144,7 +186,6 @@ body, .gradio-container { font-family: 'Inter', sans-serif !important; }
     border: none !important;
     border-radius: 10px !important;
     padding: 14px 16px !important;
-    min-height: 180px !important;
 }
 
 .chip-btn button {
@@ -297,22 +338,10 @@ _MODEL_CARD = """
           <td style="padding:11px 16px;text-align:center;color:#1d4ed8;font-weight:700;background:#f0f7ff">~0.44</td>
           <td style="padding:11px 16px;text-align:center;color:#059669;font-weight:600">+57%</td>
         </tr>
-        <tr style="border-top:1px solid #e2e8f0;background:#fafafa">
-          <td style="padding:11px 16px;color:#374151;font-weight:500">Train loss</td>
-          <td style="padding:11px 16px;text-align:center;color:#6b7280">—</td>
-          <td style="padding:11px 16px;text-align:center;color:#1d4ed8;font-weight:700;background:#f0f7ff">0.920</td>
-          <td style="padding:11px 16px;text-align:center;color:#6b7280">—</td>
-        </tr>
-        <tr style="border-top:1px solid #e2e8f0">
-          <td style="padding:11px 16px;color:#374151;font-weight:500">Eval loss</td>
-          <td style="padding:11px 16px;text-align:center;color:#6b7280">—</td>
-          <td style="padding:11px 16px;text-align:center;color:#1d4ed8;font-weight:700;background:#f0f7ff">0.929</td>
-          <td style="padding:11px 16px;text-align:center;color:#6b7280">—</td>
-        </tr>
       </tbody>
     </table>
     <p style="font-size:0.75em;color:#94a3b8;margin:6px 4px 0">
-      * Accuracy & BLEU estimated from training metrics (eval/loss 0.929, 1 epoch on 32K pairs).
+      * Metrics estimated from training dynamics (615 steps, 1 epoch on 32K pairs).
       Base model scores reflect zero-shot performance on PathVQA format.
     </p>
   </div>
@@ -400,11 +429,7 @@ with gr.Blocks(
 
     with gr.Row(equal_height=False):
         with gr.Column(scale=4, min_width=320):
-            image_in = gr.Image(
-                type="pil",
-                label="Pathology Image",
-                height=280,
-            )
+            image_in = gr.Image(type="pil", label="Pathology Image", height=280)
             question_in = gr.Textbox(
                 label="Clinical Question",
                 placeholder="e.g. Is there evidence of malignancy?",
@@ -416,21 +441,33 @@ with gr.Blocks(
 
             with gr.Accordion("Generation settings", open=False):
                 max_tokens_slider = gr.Slider(
-                    minimum=64, maximum=512, value=256, step=32,
-                    label="Max tokens",
+                    minimum=64, maximum=512, value=256, step=32, label="Max tokens"
                 )
 
         with gr.Column(scale=6, min_width=380):
-            answer_type_html = gr.HTML(
-                '<div class="answer-meta"></div>'
-            )
+            answer_type_html = gr.HTML('<div class="answer-meta"></div>')
             answer_out = gr.Textbox(
-                label="Pathologist AI Answer",
-                lines=14,
+                label="Answer",
+                lines=3,
                 interactive=False,
                 elem_classes=["answer-box"],
                 placeholder="Answer will appear here after you click Analyze…",
             )
+            explanation_out = gr.Textbox(
+                label="Explanation",
+                lines=6,
+                interactive=False,
+                elem_classes=["answer-box"],
+                placeholder="Pathological explanation will appear here…",
+            )
+
+    gr.HTML('<div class="section-title" style="margin:16px 0 8px 0">Saliency map — where the model looked</div>')
+    heatmap_out = gr.Image(
+        label="Gradient saliency overlay (warm = high attention)",
+        type="pil",
+        interactive=False,
+        height=320,
+    )
 
     gr.HTML('<div class="section-title" style="margin:16px 0 8px 0">Quick questions</div>')
     with gr.Row():
@@ -450,19 +487,21 @@ with gr.Blocks(
 
     gr.HTML(_MODEL_CARD)
 
+    _vqa_outputs = [answer_out, explanation_out, answer_type_html, heatmap_out]
+
     submit_btn.click(
         fn=run_vqa,
         inputs=[image_in, question_in, max_tokens_slider],
-        outputs=[answer_out, answer_type_html],
+        outputs=_vqa_outputs,
     )
     question_in.submit(
         fn=run_vqa,
         inputs=[image_in, question_in, max_tokens_slider],
-        outputs=[answer_out, answer_type_html],
+        outputs=_vqa_outputs,
     )
     clear_btn.click(
-        fn=lambda: (None, "", "", '<div class="answer-meta"></div>'),
-        outputs=[image_in, question_in, answer_out, answer_type_html],
+        fn=lambda: (None, "", "", "", '<div class="answer-meta"></div>', None),
+        outputs=[image_in, question_in, answer_out, explanation_out, answer_type_html, heatmap_out],
     )
 
 if __name__ == "__main__":

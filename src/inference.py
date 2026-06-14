@@ -176,6 +176,55 @@ def predict_batch(
     return answers
 
 
+def get_saliency_map(
+    model,
+    processor,
+    image: Image.Image,
+    question: str,
+    instruction: str = SYSTEM_PROMPT,
+):
+    """
+    Gradient saliency w.r.t. input pixels.
+    Returns a (H, W) float32 numpy array normalised to [0, 1] at the
+    processor's native resolution (e.g. 896×896 for Med-GaMMa).
+    """
+    import numpy as np
+
+    conversation = [{
+        "role": "user",
+        "content": [
+            {"type": "text", "text": instruction},
+            {"type": "image", "image": image},
+            {"type": "text", "text": question},
+        ],
+    }]
+
+    raw = processor.apply_chat_template(
+        conversation,
+        add_generation_prompt=True,
+        tokenize=True,
+        return_dict=True,
+        return_tensors="pt",
+    )
+
+    input_ids      = raw["input_ids"].to(model.device)
+    attention_mask = raw["attention_mask"].to(model.device)
+    pixel_values   = raw["pixel_values"].float().to(model.device)
+    pixel_values.requires_grad_(True)
+
+    with torch.enable_grad():
+        outputs   = model(input_ids=input_ids, attention_mask=attention_mask,
+                          pixel_values=pixel_values)
+        top_token = outputs.logits[:, -1, :].argmax(dim=-1)
+        outputs.logits[0, -1, top_token[0]].backward()
+
+    grad     = pixel_values.grad[0].abs()          # (C, H, W)
+    saliency = grad.max(dim=0).values              # (H, W)
+    saliency = saliency.detach().cpu().float().numpy()
+    lo, hi   = saliency.min(), saliency.max()
+    return (saliency - lo) / (hi - lo + 1e-8)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Med-GaMMa PathVQA inference")
     parser.add_argument("--model", default="outputs/final")
