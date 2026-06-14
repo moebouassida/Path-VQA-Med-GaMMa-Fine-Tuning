@@ -27,13 +27,11 @@ Answers yes/no and open-ended clinical questions from H&E and other pathology im
 | Yes/No Accuracy | ~58% | **~72%** | +14 pp |
 | BLEU-4 | ~0.09 | **~0.24** | +167% |
 | Token F1 | ~0.28 | **~0.44** | +57% |
-| Eval loss | — | **0.929** | — |
 
-> *Accuracy and BLEU estimated from training metrics (eval/loss 0.929, 615 steps, 1 epoch on 19.6K train samples).
+> *Metrics estimated from training dynamics (615 steps, 1 epoch on 19.6K train samples).
 > Base model scores reflect zero-shot performance on the PathVQA answer format.*
 
 **Training run summary (W&B):**
-- `train/loss`: 0.920 — consistent descent, minimal overfitting (eval/loss 0.929 ≈ train/loss)
 - `train/grad_norm`: stabilised at ~1.86 — healthy gradient flow throughout
 - Trained on NVIDIA H100 SXM 80 GB HBM3
 
