@@ -40,7 +40,7 @@ def _load_model():
 _examples: list = []
 try:
     from datasets import load_dataset as _hf_load
-    _ex_ds = _hf_load("moebouassida/path-vqa-enhanced", split="test[:8]")
+    _ex_ds = _hf_load("moebouassida/path-vqa-enhanced", split="test[8:16]")
     _examples = [[s["image"], s["question"]] for s in _ex_ds]
     print(f"[demo] Loaded {len(_examples)} examples from dataset")
 except Exception as e:
@@ -468,6 +468,19 @@ with gr.Blocks(
         interactive=False,
         height=320,
     )
+    gr.HTML("""
+<div style="display:flex;align-items:center;gap:10px;margin:6px 4px 0;font-size:0.78em;color:#6b7280">
+  <span style="white-space:nowrap;font-weight:500">Low</span>
+  <div style="flex:1;height:12px;border-radius:6px;
+              background:linear-gradient(to right,#000000,#cc0000,#ff8800,#ffff00,#ffffff);
+              border:1px solid #e2e8f0"></div>
+  <span style="white-space:nowrap;font-weight:500">High attention</span>
+</div>
+<div style="display:flex;justify-content:space-between;font-size:0.72em;color:#94a3b8;margin:3px 4px 0;padding:0 2px">
+  <span>no gradient signal</span>
+  <span style="margin-left:auto">strong influence on prediction</span>
+</div>
+""")
 
     gr.HTML('<div class="section-title" style="margin:16px 0 8px 0">Quick questions</div>')
     with gr.Row():
