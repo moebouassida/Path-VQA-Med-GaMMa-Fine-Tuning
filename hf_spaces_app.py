@@ -37,12 +37,23 @@ def _load_model():
     print(f"[demo] Model loaded from: {src}")
 
 
+def _is_he_slide(img) -> bool:
+    # H&E slides: light background (eosin pink + white), hematoxylin blue/purple
+    # → high mean brightness, red channel > green, some blue component
+    arr = np.array(img.resize((64, 64)).convert("RGB"), dtype=np.float32)
+    r, g, b = arr[:, :, 0].mean(), arr[:, :, 1].mean(), arr[:, :, 2].mean()
+    return (r + g + b) / 3 > 140 and r > g and b > g * 0.65
+
+
 _examples: list = []
 try:
     from datasets import load_dataset as _hf_load
-    _ex_ds = _hf_load("moebouassida/path-vqa-enhanced", split="test[8:16]")
-    _examples = [[s["image"], s["question"]] for s in _ex_ds]
-    print(f"[demo] Loaded {len(_examples)} examples from dataset")
+    _ex_ds = _hf_load("moebouassida/path-vqa-enhanced", split="test[:80]")
+    _examples = []
+    for s in _ex_ds:
+        if _is_he_slide(s["image"]) and len(_examples) < 8:
+            _examples.append([s["image"], s["question"]])
+    print(f"[demo] Loaded {len(_examples)} H&E examples from dataset")
 except Exception as e:
     print(f"[demo] Could not pre-load examples: {e}")
 
