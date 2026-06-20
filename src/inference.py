@@ -219,10 +219,19 @@ def get_saliency_map(
         outputs.logits[0, -1, top_token[0]].backward()
 
     grad     = pixel_values.grad[0].abs()          # (C, H, W)
-    saliency = grad.max(dim=0).values              # (H, W)
+    saliency = grad.mean(dim=0)                    # (H, W) — mean is less noisy than max
     saliency = saliency.detach().cpu().float().numpy()
-    lo, hi   = saliency.min(), saliency.max()
-    return (saliency - lo) / (hi - lo + 1e-8)
+
+    # percentile normalization: min-max collapses when gradients are near-uniform
+    lo, hi = np.percentile(saliency, 5), np.percentile(saliency, 99)
+    saliency = np.clip((saliency - lo) / (hi - lo + 1e-8), 0, 1)
+
+    # blur to reduce per-pixel noise before display
+    from PIL import ImageFilter
+    h, w = saliency.shape
+    sal_pil = Image.fromarray((saliency * 255).astype(np.uint8))
+    sal_pil = sal_pil.filter(ImageFilter.GaussianBlur(radius=max(3, min(h, w) // 80)))
+    return np.array(sal_pil, dtype=np.float32) / 255.0
 
 
 if __name__ == "__main__":
